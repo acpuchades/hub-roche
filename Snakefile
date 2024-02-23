@@ -2,7 +2,7 @@ chrN = [*map(str, range(1,23)), "M", "X", "Y"]
 samples, = glob_wildcards("data/vcf/{sample}.vcf.gz")
 
 rule all:
-    input: "output/all-variants.exonic_variant_function"
+    input: multiext("output/all-variants", ".variant_function", ".exonic_variant_function")
 
 rule clean:
     shell: "rm -rf output"
@@ -17,7 +17,7 @@ rule download_annovar:
     shell: "open https://www.openbioinformatics.org/annovar/annovar_download_form.php"
 
 rule download_ucsc_hg38_ref_files:
-    output: expand("vendor/hg38/chr{N}.fa.gz", N=chrN)
+    output: directory("vendor/hg38")
     shell: "wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg38/chromosomes/*' -P vendor/hg38"
 
 rule uncompress_genome_ref_files:
@@ -40,21 +40,21 @@ rule sort_vcf_file:
     output: "output/{sample}.sorted.vcf.gz"
     shell: "bcftools sort -Oz {input:q} -o {output:q}"
 
-rule normalize_vcf_file:
+rule spread_multiline_vcf_file:
     input: "output/{sample}.sorted.vcf.gz"
-    output: "output/{sample}.normalized.vcf.gz"
+    output: "output/{sample}.spread.vcf.gz"
     shell: "bcftools norm -m-both -Oz {input:q} -o {output:q}"
 
 rule left_align_vcf_file:
     input:
         hg38="vendor/hg38/uncompressed/hg38_ref_genome.fa",
-        vcf="output/{sample}.normalized.vcf.gz"
-    output: "output/{sample}.leftaligned.vcf.gz"
+        vcf="output/{sample}.spread.vcf.gz"
+    output: "output/{sample}.normalized.vcf.gz"
     shell: "bcftools norm -f {input.hg38:q} -Oz {input.vcf:q} -o {output:q}"
 
 # HACK: removing wrong FORMAT/PL values
 rule remove_format_pl_from_vcf_file:
-    input: "output/{sample}.leftaligned.vcf.gz"
+    input: "output/{sample}.normalized.vcf.gz"
     output: "output/{sample}.noformatpl.vcf.gz"
     shell: "bcftools annotate -x FORMAT/PL -Oz {input:q} -o {output:q}"
 
@@ -76,14 +76,14 @@ rule download_annovar_dbfile:
     output: "vendor/annovar/humandb/{dbfile}"
     shell: "wget -q -O - http://www.openbioinformatics.org/annovar/download/{wildcards.dbfile}.gz | gunzip > {output:q}"
 
-rule annotate_merged_vcf_file:
+rule annotate_merged_vcf_file_genes:
     input:
-        av_hg38_knowngene="vendor/annovar/humandb/hg38_refGene.txt",
-        av_hg38_knowngene_mrna="vendor/annovar/humandb/hg38_refGeneMrna.fa",
-        av_hg38_knowngene_version="vendor/annovar/humandb/hg38_refGeneVersion.txt",
         av_annotate="vendor/annovar/annotate_variation.pl",
+        av_hg38_knowngene="vendor/annovar/humandb/hg38_knownGene.txt",
+        av_hg38_knowngene_kgxref="vendor/annovar/humandb/hg38_kgXref.txt",
+        av_hg38_knowngene_mrna="vendor/annovar/humandb/hg38_knownGeneMrna.fa",
         avfile="output/all-variants.avinput"
     output:
         "output/all-variants.variant_function",
         "output/all-variants.exonic_variant_function"
-    shell: "{input.av_annotate} -out output/all-variants -build hg38 {input.avfile} vendor/annovar/humandb"
+    shell: "{input.av_annotate} -out output/all-variants -geneanno -build hg38 {input.avfile} vendor/annovar/humandb -dbtype knownGene"
