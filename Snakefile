@@ -1,4 +1,4 @@
-chrN = [*map(str, range(1,22)), "M", "X", "Y"]
+chrN = [*map(str, range(1,23)), "M", "X", "Y"]
 samples, = glob_wildcards("data/vcf/{sample}.vcf.gz")
 
 rule all:
@@ -16,18 +16,18 @@ rule download_annovar:
     output: "vendor/annovar.latest.tar.gz"
     shell: "open https://www.openbioinformatics.org/annovar/annovar_download_form.php"
 
-rule download_hg19_ref_files:
-    output: expand("vendor/hg19/chr{N}.fa.gz", N=chrN)
-    shell: "rsync -a -P rsync://hgdownload.cse.ucsc.edu/goldenPath/hg19/chromosomes/ vendor/hg19"
+rule download_ucsc_hg38_ref_files:
+    output: expand("vendor/hg38/chr{N}.fa.gz", N=chrN)
+    shell: "wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg38/chromosomes/*' -P vendor/hg38"
 
-rule uncompress_hg19_ref_files:
-    input: "vendor/hg19/{chrX}.fa.gz"
-    output: "vendor/hg19/uncompressed/{chrX}.fa"
+rule uncompress_genome_ref_files:
+    input: "vendor/{genome}/{chrX}.fa.gz"
+    output: "vendor/{genome}/uncompressed/{chrX}.fa"
     shell: "gunzip -c {input:q} > {output:q}"
 
-rule merge_hg19_ref_files:
-    input: expand("vendor/hg19/uncompressed/chr{N}.fa", N=chrN)
-    output: "vendor/hg19/uncompressed/hg19_ref_genome.fa"
+rule merge_hg38_ref_files:
+    input: expand("vendor/hg38/uncompressed/chr{N}.fa", N=chrN)
+    output: "vendor/hg38/uncompressed/hg38_ref_genome.fa"
     shell: "cat {input:q} > {output:q}"
 
 rule unpack_annovar:
@@ -47,14 +47,14 @@ rule normalize_vcf_file:
 
 rule left_align_vcf_file:
     input:
-        hg19="vendor/hg19/uncompressed/hg19_ref_genome.fa",
+        hg38="vendor/hg38/uncompressed/hg38_ref_genome.fa",
         vcf="output/{sample}.normalized.vcf.gz"
     output: "output/{sample}.leftaligned.vcf.gz"
-    shell: "bcftools norm -f {input.hg19:q} {input:q}"
+    shell: "bcftools norm -f {input.hg38:q} -Oz {input.vcf:q} -o {output:q}"
 
 # HACK: removing wrong FORMAT/PL values
 rule remove_format_pl_from_vcf_file:
-    input: "output/{sample}.normalized.vcf.gz"
+    input: "output/{sample}.leftaligned.vcf.gz"
     output: "output/{sample}.noformatpl.vcf.gz"
     shell: "bcftools annotate -x FORMAT/PL -Oz {input:q} -o {output:q}"
 
@@ -72,12 +72,18 @@ rule convert_vcf_to_annovar:
     output: "{file}.avinput"
     shell: "{input.av_c2a} -format vcf4 -allsample -withfreq -includeinfo {input.vcf:q} > {output:q}"
 
+rule download_annovar_dbfile:
+    output: "vendor/annovar/humandb/{dbfile}"
+    shell: "wget -q -O - http://www.openbioinformatics.org/annovar/download/{wildcards.dbfile}.gz | gunzip > {output:q}"
+
 rule annotate_merged_vcf_file:
     input:
-        av_hg19_knowngene="vendor/annovar/humandb/hg19_refGene.txt",
+        av_hg38_knowngene="vendor/annovar/humandb/hg38_refGene.txt",
+        av_hg38_knowngene_mrna="vendor/annovar/humandb/hg38_refGeneMrna.fa",
+        av_hg38_knowngene_version="vendor/annovar/humandb/hg38_refGeneVersion.txt",
         av_annotate="vendor/annovar/annotate_variation.pl",
         avfile="output/all-variants.avinput"
     output:
         "output/all-variants.variant_function",
         "output/all-variants.exonic_variant_function"
-    shell: "{input.av_annotate} -out output/all-variants -build hg19 {input.avfile} $(dirname {input.av_hg19_knowngene})"
+    shell: "{input.av_annotate} -out output/all-variants -build hg38 {input.avfile} vendor/annovar/humandb"
