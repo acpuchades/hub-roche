@@ -1,4 +1,3 @@
-chrN = [*map(str, range(1,23)), "M", "X", "Y"]
 samples, = glob_wildcards("data/vcf/{sample}.vcf.gz")
 
 rule all:
@@ -20,15 +19,10 @@ rule download_ucsc_hg38_ref_files:
     output: directory("vendor/hg38")
     shell: "wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/hg38/chromosomes/*' -P vendor/hg38"
 
-rule uncompress_genome_ref_files:
-    input: "vendor/{genome}/{chrX}.fa.gz"
-    output: "vendor/{genome}/uncompressed/{chrX}.fa"
-    shell: "gunzip -c {input:q} > {output:q}"
-
 rule merge_hg38_ref_files:
-    input: expand("vendor/hg38/uncompressed/chr{N}.fa", N=chrN)
-    output: "vendor/hg38/uncompressed/hg38_ref_genome.fa"
-    shell: "cat {input:q} > {output:q}"
+    input: "vendor/{genome}"
+    output: "vendor/{genome}_ref_genome.fa"
+    shell: "mkdir -p $(dirname {output:q}) && find {input:q} -name '*.fa.gz' -exec gunzip -c {{}} >> {output:q} \;"
 
 rule unpack_annovar:
     input: "vendor/annovar.latest.tar.gz"
@@ -47,7 +41,7 @@ rule spread_multiline_vcf_file:
 
 rule left_align_vcf_file:
     input:
-        hg38="vendor/hg38/uncompressed/hg38_ref_genome.fa",
+        hg38="vendor/hg38_ref_genome.fa",
         vcf="output/{sample}.spread.vcf.gz"
     output: "output/{sample}.normalized.vcf.gz"
     shell: "bcftools norm -f {input.hg38:q} -Oz {input.vcf:q} -o {output:q}"
