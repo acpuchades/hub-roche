@@ -5,7 +5,12 @@ nuclear_chrN = auto_chrN + ['X', 'Y']
 all_chrN = nuclear_chrN + ['M']
 
 rule all:
-    input: "output/gnomad-annotated-variants/concat.hg38_multianno_gnomad.bcf"
+    input:
+        "output/common-variants/plink.bed",
+        "output/rare-variants/maf_filtered.lt.0.05.bcf",
+        "output/rare-variants/maf_filtered.lt.0.01.bcf",
+        "output/rare-variants/maf_filtered.lt.0.001.bcf",
+        "output/rare-variants/maf_filtered.unknown.bcf"
 
 rule clean:
     shell: "rm -rf output"
@@ -31,7 +36,7 @@ rule download_ucsc_hg38_ref_files:
 rule concat_hg38_ref_files:
     input: "vendor/genomes/{genome}"
     output: "vendor/genomes/uncompressed/{genome}.fa"
-    shell: "find {input:q} -name '*.fa.gz' -exec gunzip -c {{}} >> {output:q} \;"
+    shell: "find {input:q} -name '*.fa.gz' -exec gunzip -c {{}} >> {output:q} \\;"
 
 rule unpack_annovar:
     input: "vendor/annovar.latest.tar.gz"
@@ -95,57 +100,43 @@ rule split_annotated_variant_files:
 
 rule download_gnomad_vcf_files:
     output: "vendor/gnomad/{version}/{type}/{file}"
-    shell: "wget -q https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/vcf/{wildcards.type}/{wildcards.file} -O {output:q}"
+    shell: "wget -q 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/vcf/{wildcards.type}/{wildcards.file}' -O {output:q}"
 
 rule download_clinvar_files:
     output: "vendor/clinvar/{build}/{file}"
-    shell: "wget -q https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_{wildcards.build}/{wildcards.file} -O {output:q}"
+    shell: "wget -q 'https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_{wildcards.build}/{wildcards.file}' -O {output:q}"
 
 rule download_dbsnp_files:
     output: "vendor/dbsnp/GRCh38/{file}"
-    shell: "wget -q https://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/{wildcards.file} -O {output:q}"
+    shell: "wget -q 'https://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/{wildcards.file}' -O {output:q}"
 
 rule interpolate_vcfanno_gnomad_file_nuclear:
-    input: "config/gnomad.conf.in"
+    input:
+        config="config/gnomad.conf.in",
+        gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz"
     output: "output/gnomad-annotated-variants/vcfanno.{chrN}.conf"
-    shell: " \
-        GNOMAD_VCF_FILE='vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{wildcards.chrN}.vcf.bgz' \
-        CLINVAR_VCF_FILE='vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz' \
-        DBSNP_VCF_FILE='vendor/dbsnp/GRCh38/All_20180418.vcf.gz' \
-            envsubst < {input:q} > {output:q} \
-    "
+    shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
 
 rule interpolate_vcfanno_gnomad_file_mitochondrial:
-    input: "config/gnomad.conf.in"
+    input:
+        config="config/gnomad.conf.in",
+        gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz"
     output: "output/gnomad-annotated-variants/vcfanno.chrM.conf"
-    shell: " \
-        GNOMAD_VCF_FILE='vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz' \
-        CLINVAR_VCF_FILE='vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz' \
-        DBSNP_VCF_FILE='vendor/dbsnp/GRCh38/All_20180418.vcf.gz' \
-            envsubst < {input:q} > {output:q} \
-    "
+    shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
 
-rule annotate_split_nuclear_variant_files_gnomad:
+rule gnomad_annotate_nuclear_variants:
     input:
         gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz",
         gnomad_tbi="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz.tbi",
-        clinvar_vcf="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz",
-        clinvar_tbi="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz.tbi",
-        dbsnp_vcf="vendor/dbsnp/GRCh38/All_20180418.vcf.gz",
-        dbsnp_tbi="vendor/dbsnp/GRCh38/All_20180418.vcf.gz.tbi",
         vcfanno_config="output/gnomad-annotated-variants/vcfanno.{chrN}.conf",
         vcf="output/annovar-annotated-variants/{chrN}.hg38_multianno.vcf.gz"
     output: "output/gnomad-annotated-variants/{chrN}.hg38_multianno_gnomad.vcf"
     shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
-rule annotate_split_mitochondrial_variant_files_gnomad:
+rule gnomad_annotate_mitochondrial_variants:
     input:
         gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz",
         gnomad_tbi="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz.tbi",
-        clinvar_vcf="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz",
-        clinvar_tbi="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz.tbi",
-        dbsnp_vcf="vendor/dbsnp/GRCh38/All_20180418.vcf.gz",
-        dbsnp_tbi="vendor/dbsnp/GRCh38/All_20180418.vcf.gz.tbi",
         vcfanno_config="output/gnomad-annotated-variants/vcfanno.chrM.conf",
         vcf="output/annovar-annotated-variants/chrM.hg38_multianno.vcf.gz"
     output: "output/gnomad-annotated-variants/chrM.hg38_multianno_gnomad.vcf"
@@ -155,5 +146,51 @@ rule concat_gnomad_annotated_variant_files:
     input:
         vcf=expand("output/gnomad-annotated-variants/chr{N}.hg38_multianno_gnomad.vcf.gz", N=all_chrN),
         tbi=expand("output/gnomad-annotated-variants/chr{N}.hg38_multianno_gnomad.vcf.gz.tbi", N=all_chrN)
-    output: "output/gnomad-annotated-variants/concat.hg38_multianno_gnomad.bcf"
+    output: "output/gnomad-annotated-variants/variants.bcf"
     shell: "bcftools concat {input.vcf:q} -Ob -o {output:q}"
+
+rule rename_chrs_in_gnomad_annotate_variants:
+    input:
+        vcf="output/gnomad-annotated-variants/variants.bcf",
+        chr_conv="config/chr_conv.txt"
+    output: "output/gnomad-annotated-variants/variants.chr_renamed.vcf.gz"
+    shell: "bcftools annotate --rename-chrs {input.chr_conv:q} {input.vcf:q} -Oz -o {output:q}"
+
+rule interpolate_vcfanno_clinvar_dbsnp_file:
+    input:
+        config="config/clinvar_dbsnp.conf.in",
+        clinvar_vcf="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz",
+        dbsnp_vcf="vendor/dbsnp/GRCh38/All_20180418.vcf.gz"
+    output: "output/clinvar-annotated-variants/vcfanno.conf"
+    shell: "CLINVAR_VCF_FILE={input.clinvar_vcf:q} DBSNP_VCF_FILE={input.dbsnp_vcf:q} envsubst < {input.config:q} > {output:q}"
+
+rule clinvar_annotate_variants:
+    input:
+        clinvar_vcf="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz",
+        clinvar_tbi="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz.tbi",
+        dbsnp_vcf="vendor/dbsnp/GRCh38/All_20180418.vcf.gz",
+        dbsnp_tbi="vendor/dbsnp/GRCh38/All_20180418.vcf.gz.tbi",
+        vcfanno_config="output/clinvar-annotated-variants/vcfanno.conf",
+        vcf="output/gnomad-annotated-variants/variants.chr_renamed.vcf.gz"
+    output: "output/clinvar-annotated-variants/variants.vcf"
+    shell: "vcfanno -p {workflow.cores} -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
+
+rule filter_common_variants_by_maf:
+    input: "output/clinvar-annotated-variants/variants.vcf"
+    output: "output/common-variants/maf_filtered.ge.0.05.bcf"
+    shell: "bcftools view -i 'gno_af_all > 0.05' {input:q} -Ob -o {output:q}"
+
+rule filter_annotated_variants_with_maf_lesser_than:
+    input: "output/clinvar-annotated-variants/variants.vcf"
+    output: "output/rare-variants/maf_filtered.lt.{threshold}.bcf"
+    shell: "bcftools view -i 'gno_af_all < {wildcards.threshold}' {input:q} -Ob -o {output:q}"
+
+rule filter_rare_variants_maf_unknown:
+    input: "output/clinvar-annotated-variants/variants.vcf"
+    output: "output/rare-variants/maf_filtered.unknown.bcf"
+    shell: "bcftools view -e 'gno_af_all' {input:q} -Ob -o {output:q}"
+
+rule convert_common_variants_to_plink:
+    input: "output/common-variants/maf_filtered.ge.0.05.bcf"
+    output: multiext("output/common-variants/plink", ".bed", ".bim", ".fam")
+    shell: "plink --bcf {input:q} --allow-extra-chr --out output/common-variants/plink"

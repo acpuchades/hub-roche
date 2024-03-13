@@ -1,0 +1,30 @@
+[[annotation]]
+file="${CLINVAR_VCF_FILE}"
+fields=["CLNSIG", "CLNDN"]
+names=["clinvar_sig", "clinvar_disease_name"]
+ops=["self", "self"]
+
+[[annotation]]
+file="${DBSNP_VCF_FILE}"
+fields=["RS"]
+names=["dbsnp_id"]
+ops=["self"]
+
+# convert 5 to 'pathogenic', 255 to 'unknown', etc.
+# [[postannotation]]
+# fields=["clinvar_pathogenic"]
+# op="lua:clinvar_sig(clinvar_pathogenic)"
+# name="clinvar_sig"
+# type="String"
+
+[[postannotation]]
+fields=["clinvar_sig", "max_aaf_all"]
+op="lua:check_clinvar_aaf(clinvar_sig, max_aaf_all, 0.005)"
+name="common_pathogenic"
+type="Flag"
+
+[[postannotation]]
+name="ID"
+fields=["gno_id", "dbsnp_id"]
+op="lua:setid(gno_id, dbsnp_id)"
+type="String"
