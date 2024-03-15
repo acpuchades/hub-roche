@@ -6,6 +6,7 @@ all_chrN = nuclear_chrN + ['M']
 
 rule all:
     input:
+        "output/patient-phenotypes/ufela.pheno",
         "output/common-variants/plink.bed",
         "output/common-variants/plink.eigenvec",
         "output/common-variants/plink.eigenval",
@@ -16,6 +17,14 @@ rule all:
 
 rule clean:
     shell: "rm -rf output"
+
+rule generate_ufela_phenotype_file:
+    input:
+        script="src/make-pheno-ufela.py",
+        patients="data/ufela/formulario_2023-11-15.sqlite",
+        samples="data/ufela/samples-20240201.xlsx"
+    output: "output/patient-phenotypes/ufela.pheno"
+    shell: "{input.script} --patients {input.patients:q} --samples {input.samples:q} > {output:q}"
 
 rule compress_file_bgzip:
     input: "output/{path}"
