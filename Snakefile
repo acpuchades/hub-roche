@@ -7,10 +7,12 @@ all_chrN = nuclear_chrN + ['M']
 rule all:
     input:
         "output/common-variants/plink.bed",
+        "output/common-variants/plink.eigenvec",
+        "output/common-variants/plink.eigenval",
         "output/rare-variants/maf_filtered.lt.0.05.bcf",
         "output/rare-variants/maf_filtered.lt.0.01.bcf",
         "output/rare-variants/maf_filtered.lt.0.001.bcf",
-        "output/rare-variants/maf_filtered.unknown.bcf"
+        "output/rare-variants/maf_filtered.unknown.bcf",
 
 rule clean:
     shell: "rm -rf output"
@@ -194,3 +196,8 @@ rule convert_common_variants_to_plink:
     input: "output/common-variants/maf_filtered.ge.0.05.bcf"
     output: multiext("output/common-variants/plink", ".bed", ".bim", ".fam")
     shell: "plink --bcf {input:q} --allow-extra-chr --out output/common-variants/plink"
+
+rule extract_principal_components_from_variants:
+    input: "output/common-variants/plink.bed"
+    output: multiext("output/common-variants/plink", ".eigenvec", ".eigenval")
+    shell: "plink --bfile output/common-variants/plink --pca --out output/common-variants/plink"
