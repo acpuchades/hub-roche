@@ -178,11 +178,11 @@ rule vep_annotate_merged_variants:
     output: "output/vep-annotated-variants/merged.vcf"
     shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --sift b --polyphen b --hgvs --vcf -o {output:q}"
 
-rule split_annotated_variant_files:
+rule split_vep_annotated_variant_files:
     input:
         vcf="output/vep-annotated-variants/merged.vcf.gz",
         tbi="output/vep-annotated-variants/merged.vcf.gz.tbi"
-    output: "output/vep-annotated-variants/{chrN}.vcf.gz"
+    output: "output/vep-annotated-variants/split.{chrN}.vcf.gz"
     shell: "bcftools view -Oz {input.vcf:q} -o {output:q} --regions {wildcards.chrN}"
 
 rule download_gnomad_vcf_files:
@@ -209,24 +209,31 @@ rule gnomad_annotate_nuclear_variants:
         gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz",
         gnomad_tbi="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz.tbi",
         vcfanno_config="output/gnomad-annotated-variants/vcfanno.{chrN}.conf",
-        vcf="output/vep-annotated-variants/{chrN}.vcf.gz"
-    output: "output/gnomad-annotated-variants/{chrN}.vcf"
+        vcf="output/vep-annotated-variants/split.{chrN}.vcf.gz"
+    output: "output/gnomad-annotated-variants/annotated.{chrN}.vcf"
     shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule concat_gnomad_annotated_variant_files:
     input:
-        vcf=expand("output/gnomad-annotated-variants/chr{N}.vcf.gz", N=auto_chrN),
-        tbi=expand("output/gnomad-annotated-variants/chr{N}.vcf.gz.tbi", N=auto_chrN),
-        chrM_vcf="output/vep-annotated-variants/chrM.vcf.gz",
-        chrM_tbi="output/vep-annotated-variants/chrM.vcf.gz.tbi",
-    output: "output/gnomad-annotated-variants/variants.bcf"
+        vcf=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz", N=auto_chrN),
+        tbi=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz.tbi", N=auto_chrN),
+        chrM_vcf="output/vep-annotated-variants/split.chrM.vcf.gz",
+        chrM_tbi="output/vep-annotated-variants/split.chrM.vcf.gz.tbi",
+    output: "output/gnomad-annotated-variants/annotated.bcf"
     shell: "bcftools concat {input.vcf:q} {input.chrM_vcf:q} -Ob -o {output:q}"
+
+rule generate_chr_conversion_file:
+    output: "output/gnomad-annotated-variants/chr-conv.txt"
+    run:
+        with open(output[0], "w") as out:
+            for n in all_chrN:
+                print(f'chr{n}\t{n}', file=out)
 
 rule rename_chrs_in_gnomad_annotate_variants:
     input:
-        vcf="output/gnomad-annotated-variants/variants.bcf",
-        chr_conv="config/chr_conv.txt"
-    output: "output/gnomad-annotated-variants/variants.chr_renamed.vcf.gz"
+        vcf="output/gnomad-annotated-variants/annotated.bcf",
+        chr_conv="output/gnomad-annotated-variants/chr-conv.txt"
+    output: "output/gnomad-annotated-variants/chr_renamed.vcf.gz"
     shell: "bcftools annotate --rename-chrs {input.chr_conv:q} {input.vcf:q} -Oz -o {output:q}"
 
 rule interpolate_vcfanno_clinvar_dbsnp_file:
@@ -244,12 +251,12 @@ rule clinvar_annotate_variants:
         dbsnp_vcf="vendor/dbsnp/GRCh38/All_20180418.vcf.gz",
         dbsnp_tbi="vendor/dbsnp/GRCh38/All_20180418.vcf.gz.tbi",
         vcfanno_config="output/clinvar-annotated-variants/vcfanno.conf",
-        vcf="output/gnomad-annotated-variants/variants.chr_renamed.vcf.gz"
-    output: "output/clinvar-annotated-variants/variants.vcf"
+        vcf="output/gnomad-annotated-variants/chr_renamed.vcf.gz"
+    output: "output/clinvar-annotated-variants/annotated.vcf"
     shell: "vcfanno -p {workflow.cores} -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule extract_variant_file_sample_names:
-    input: "output/clinvar-annotated-variants/variants.vcf"
+    input: "output/clinvar-annotated-variants/annotated.vcf"
     output: "output/renamed-variants/samples.original.txt"
     shell: "bcftools query --list-samples {input:q} > {output:q}"
 
@@ -269,7 +276,7 @@ rule normalize_sample_names:
 
 rule rename_variant_file_samples:
     input:
-        vcf="output/clinvar-annotated-variants/variants.vcf",
+        vcf="output/clinvar-annotated-variants/annotated.vcf",
         normalized_names="output/renamed-variants/samples.normalized.txt"
     output: "output/renamed-variants/renamed.vcf"
     shell: "bcftools reheader -s {input.normalized_names:q} -o {output:q} {input.vcf:q}"
