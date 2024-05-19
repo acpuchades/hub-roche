@@ -4,22 +4,81 @@ auto_chrN = list(map(str, range(1, 23)))
 nuclear_chrN = auto_chrN + ['X', 'Y']
 all_chrN = nuclear_chrN + ['M']
 
+sys.path.insert(1, './src')
+
 rule all:
     input:
-        "output/patient-phenotypes/ufela.pheno",
+        "output/debug/vcf.txt",
+        "output/debug/vcf-normalized.txt",
+        "output/debug/vcf.unmerged.txt",
+        "output/phenotypes/ms-assoc.pheno",
+        "output/phenotypes/als-assoc.pheno",
         "output/common-variants/plink.bed",
         "output/common-variants/plink.eigenvec"
 
 rule clean:
     shell: "rm -rf output"
 
-rule generate_ufela_phenotype_file:
+rule generate_control_phenotypes_file:
     input:
+        helpers="src/helpers.py",
         script="src/make-pheno-ufela.py",
-        patients="data/ufela/formulario_2023-11-15.sqlite",
         samples="data/ufela/samples-20240201.xlsx"
-    output: "output/patient-phenotypes/ufela.pheno"
-    shell: "{input.script} --patients {input.patients:q} --samples {input.samples:q} > {output:q}"
+    output: "output/phenotypes/controls.pheno"
+    shell: "{input.script} --samples {input.samples:q} --output controls > {output:q}"
+
+rule generate_als_phenotypes_file:
+    input:
+        helpers="src/helpers.py",
+        script="src/make-pheno-ufela.py",
+        samples="data/ufela/samples-20240201.xlsx",
+        ufela_db="data/ufela/formulario_2023-11-15.sqlite"
+    output: "output/phenotypes/als.pheno"
+    shell: "{input.script} --samples {input.samples:q} --database {input.ufela_db:q} --output patients > {output:q}"
+
+rule generate_ms_phenotypes_file:
+    input:
+        helpers="src/helpers.py",
+        script="src/make-pheno-ufem.py",
+        samples="data/ufem/samples-20240201.xlsx",
+        edmus_db="data/ufem"
+    output: "output/phenotypes/ms.pheno"
+    shell: "{input.script} --samples {input.samples:q} --database {input.edmus_db:q} > {output:q}"
+
+rule generate_assoc_phenotype_file:
+    input:
+        cases="output/phenotypes/{pheno}.pheno",
+        controls="output/phenotypes/controls.pheno"
+    output: "output/phenotypes/{pheno}-assoc.pheno"
+    shell: "\
+        printf FID\\\\tIID\\\\t{wildcards.pheno}\\\\n | tr '[:lower:]' '[:upper:]' > {output:q} && \
+        tail -n +2 {input.cases:q} | awk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 2}}' >> {output:q} && \
+        tail -n +2 {input.controls:q} | awk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 1}}' >> {output:q} \
+    "
+
+rule generate_vcf_debug_file:
+    input: "output/renamed-variants/samples.original.txt"
+    output: "output/debug/vcf.txt"
+    shell: "cp {input:q} {output:q}"
+
+rule generated_vcf_normalized_debug_file:
+    input: "output/renamed-variants/samples.normalized.txt"
+    output: "output/debug/vcf-normalized.txt"
+    shell: "cp {input:q} {output:q}"
+
+rule generate_pheno_debug_file:
+    input: "output/phenotypes/{pheno}.txt"
+    output: "output/debug/{pheno}.pheno.txt"
+    shell: "tail -n +2 {input:q} | cut -d $'\t' -f2 | sort -k 1,1 > {output:q}"
+
+rule generate_vcf_unmerged_debug_file:
+    input:
+        als_pheno="output/debug/als.pheno.txt",
+        ms_pheno="output/debug/ms.pheno.txt",
+        controls_pheno="output/debug/controls.pheno.txt",
+        vcf_normalized="output/debug/vcf-normalized.txt"
+    output: "output/debug/vcf.unmerged.txt"
+    shell: "cat {input.vcf_normalized:q} | grep -f {input.als_pheno:q} -f {input.ms_pheno:q} -f {input.controls_pheno:q} -v | sort -n -k1,1 > {output:q}"
 
 rule compress_file_bgzip:
     input: "output/{path}"
@@ -189,20 +248,58 @@ rule clinvar_annotate_variants:
     output: "output/clinvar-annotated-variants/variants.vcf"
     shell: "vcfanno -p {workflow.cores} -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
-rule filter_common_variants_by_maf:
+rule extract_variant_file_sample_names:
     input: "output/clinvar-annotated-variants/variants.vcf"
+    output: "output/renamed-variants/samples.original.txt"
+    shell: "bcftools query --list-samples {input:q} > {output:q}"
+
+rule normalize_sample_names:
+    input:
+        helpers="src/helpers.py",
+        sample_names="output/renamed-variants/samples.original.txt"
+    output: "output/renamed-variants/samples.normalized.txt"
+    run:
+        from helpers import normalize_sample_id
+        with open(input.sample_names, 'r') as f:
+            with open(output[0], 'w') as out:
+                for line in f.readlines():
+                    name = line.rstrip('\n')
+                    name = normalize_sample_id(name)
+                    print(name, file=out)
+
+rule rename_variant_file_samples:
+    input:
+        vcf="output/clinvar-annotated-variants/variants.vcf",
+        normalized_names="output/renamed-variants/samples.normalized.txt"
+    output: "output/renamed-variants/renamed.vcf"
+    shell: "bcftools reheader -s {input.normalized_names:q} -o {output:q} {input.vcf:q}"
+
+rule sort_normalized_sample_names:
+    input: "output/renamed-variants/samples.normalized.txt"
+    output: "output/renamed-variants/samples.sorted.txt"
+    shell: "sort -k1,1 {input:q} > {output:q}"
+
+rule sort_renamed_variant_file_samples:
+    input:
+        vcf="output/renamed-variants/renamed.vcf",
+        sorted_names="output/renamed-variants/samples.sorted.txt"
+    output: "output/renamed-variants/sorted.bcf"
+    shell: "bcftools view -S {input.sorted_names} -Ob -o {output:q} {input.vcf:q}"
+
+rule filter_common_variants_by_maf:
+    input: "output/renamed-variants/sorted.bcf"
     output: "output/common-variants/maf_filtered.ge.0.05.bcf"
-    shell: "bcftools view -i 'gno_af_all > 0.05' {input:q} -Ob -o {output:q}"
+    shell: "bcftools view -i 'gno_af_all > 0.05' -Ob -o {output:q} {input:q}"
 
 rule filter_annotated_variants_with_maf_lesser_than:
-    input: "output/clinvar-annotated-variants/variants.vcf"
+    input: "output/renamed-variants/sorted.bcf"
     output: "output/rare-variants/maf_filtered.lt.{threshold}.bcf"
-    shell: "bcftools view -i 'gno_af_all < {wildcards.threshold}' {input:q} -Ob -o {output:q}"
+    shell: "bcftools view -i 'gno_af_all < {wildcards.threshold}' -Ob -o {output:q} {input:q}"
 
 rule filter_rare_variants_maf_unknown:
-    input: "output/clinvar-annotated-variants/variants.vcf"
+    input: "output/renamed-variants/sorted.bcf"
     output: "output/rare-variants/maf_filtered.unknown.bcf"
-    shell: "bcftools view -e 'gno_af_all' {input:q} -Ob -o {output:q}"
+    shell: "bcftools view -e 'gno_af_all' -Ob -o {output:q} {input:q}"
 
 rule convert_common_variants_to_plink:
     input: "output/common-variants/maf_filtered.ge.0.05.bcf"
