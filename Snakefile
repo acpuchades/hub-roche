@@ -41,9 +41,10 @@ rule generate_ms_phenotypes_file:
         helpers="src/helpers.py",
         script="src/make-pheno-ufem.py",
         samples="data/ufem/samples-20240201.xlsx",
+        nhc="data/ufem/FClinica.xlsx",
         edmus_db="data/ufem"
     output: "output/phenotypes/ms.pheno"
-    shell: "{input.script} --samples {input.samples:q} --database {input.edmus_db:q} > {output:q}"
+    shell: "{input.script} --samples {input.samples:q} --nhc {input.nhc:q} --database {input.edmus_db:q} > {output:q}"
 
 rule generate_assoc_phenotype_file:
     input:
@@ -67,18 +68,18 @@ rule generated_vcf_normalized_debug_file:
     shell: "cp {input:q} {output:q}"
 
 rule generate_pheno_debug_file:
-    input: "output/phenotypes/{pheno}.txt"
-    output: "output/debug/{pheno}.pheno.txt"
+    input: "output/phenotypes/{pheno}.pheno"
+    output: "output/debug/{pheno}.txt"
     shell: "tail -n +2 {input:q} | cut -d $'\t' -f2 | sort -k 1,1 > {output:q}"
 
 rule generate_vcf_unmerged_debug_file:
     input:
-        als_pheno="output/debug/als.pheno.txt",
-        ms_pheno="output/debug/ms.pheno.txt",
-        controls_pheno="output/debug/controls.pheno.txt",
+        als_pheno="output/debug/als.txt",
+        ms_pheno="output/debug/ms.txt",
+        controls_pheno="output/debug/controls.txt",
         vcf_normalized="output/debug/vcf-normalized.txt"
     output: "output/debug/vcf.unmerged.txt"
-    shell: "cat {input.vcf_normalized:q} | grep -f {input.als_pheno:q} -f {input.ms_pheno:q} -f {input.controls_pheno:q} -v | sort -n -k1,1 > {output:q}"
+    shell: "cat {input.vcf_normalized:q} | grep -f {input.als_pheno:q} -v | grep -f {input.ms_pheno:q} -v | grep -f {input.controls_pheno:q} -v | sort -n -k1,1 > {output:q}"
 
 rule compress_file_bgzip:
     input: "output/{path}"

@@ -50,7 +50,6 @@ ufela_samples = (
             ufela_samples[ufela_samples.noraybanks_id.notna()].drop(columns='sample_id').rename(columns={'noraybanks_id': 'sample_id'}),
         ])
         .dropna(subset=['sample_id', 'nhc'])
-        .drop_duplicates()
         .assign(
             nhc = lambda df: pd.to_numeric(df.nhc, errors='coerce'),
             sample_id = lambda df: df.sample_id.str.strip().map(normalize_sample_id, na_action='ignore')
@@ -191,6 +190,7 @@ elif args.output in ['patients', 'unmerged']:
     if args.output == 'patients':
         output = pd.merge(ufela_samples, ufela_patients, on='nhc').dropna(subset='sample_id')
         output['FID'] = output['IID'] = output.sample_id
+        output['NHC'] = output.nhc
         output['ALS'] = np.where(output.fenotipo == 'ALS', 2, 1)
         output['PLS'] = np.where(output.fenotipo == 'PLS', 2, 1)
         output['PMA'] = np.where(output.fenotipo == 'PMA', 2, 1)
@@ -203,7 +203,7 @@ elif args.output in ['patients', 'unmerged']:
         output['deltafs'] = output.delta_fs.round(2)
         output['timetodeath'] = output.tiempo_supervivencia.round(1)
         output = output[[
-            'FID', 'IID', 'ALS', 'PLS', 'PMA', 'PBP',
+            'FID', 'IID', 'NHC', 'ALS', 'PLS', 'PMA', 'PBP',
             'bulbar_onset', 'spinal_onset', 'respiratory_onset',
             'ageatonset', 'dxdelay', 'deltafs', 'timetodeath',
         ]].sort_values(['FID', 'IID'])

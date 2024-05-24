@@ -11,6 +11,7 @@ from helpers import normalize_sample_id
 
 def make_argument_parser():
     parser = ArgumentParser()
+    parser.add_argument('--nhc', type=Path, required=True)
     parser.add_argument('--samples', type=Path, required=True)
     parser.add_argument('--database', type=Path, required=True)
     parser.add_argument('--output', choices=['patients', 'unmerged'], default='patients')
@@ -50,6 +51,7 @@ ufem_db_personal = read_edmus_file(args.database, 'BCN4-Personal')
 ufem_db_personal['MS Onset'] = date_from_edmus(ufem_db_personal['MS Onset'])
 ufem_db_personal['Irreversible DSS 3'] = date_from_edmus(ufem_db_personal['Irreversible DSS 3'])
 ufem_db_personal['Irreversible DSS 6'] = date_from_edmus(ufem_db_personal['Irreversible DSS 6'])
+ufem_db_personal['Other identifier'] = pd.to_numeric(ufem_db_personal['Other identifier'], errors='coerce')
 
 ufem_db_diagnosis = read_edmus_file(args.database, 'BCN4-Diagnosis')
 ufem_db_diagnosis['MS Onset'] = date_from_edmus(ufem_db_diagnosis['MS Onset'])
@@ -61,6 +63,13 @@ ufem_followups = ufem_db_clinical.sort_values(['Patient ID', 'Date'])
 
 ufem_db_episodes = read_edmus_file(args.database, 'BCN4-Episodes')
 ufem_db_episodes['Date'] = date_from_edmus(ufem_db_episodes['Date'])
+
+ufem_nhc = pd.read_excel(args.nhc).assign(**{
+    'FC SAP': lambda df: pd.to_numeric(df['FC SAP'], errors='coerce'),
+    'FC nhc': lambda df: pd.to_numeric(df['FC nhc'], errors='coerce'),
+})[[
+    'FC CIP', 'FC SAP', 'FC nhc', 'FC Nº EDMUS'
+]]
 
 ufem_patients = (
     pd
@@ -137,8 +146,11 @@ ufem_patients = ufem_patients.assign(
 )
 
 if args.output == 'patients':
-    output = pd.merge(ufem_samples, ufem_patients, on='nhc')
+    output = pd.merge(ufem_samples, ufem_nhc, left_on="nhc", right_on="FC SAP")
+    output = pd.merge(output, ufem_patients, left_on="FC Nº EDMUS", right_on="Local identifier")
     output['FID'] = output['IID'] = output.sample_id
+    output['NHC'] = output['Other identifier']
+    output['EDMUS'] = output['Patient ID']
     output['RR_SP'] = np.where(output.ms_phenotype.isin(['RR', 'SP']), 2, 1)
     output['PP'] = np.where(output.ms_phenotype == 'PP', 2, 1)
     output['ageatonset'] = np.where(output['Age at onset'] > 0, output['Age at onset'], -9)
@@ -152,16 +164,13 @@ if args.output == 'patients':
     output['timetoiedss6'] = output['timetoiedss6'].round(1)
     output['timetoprogression'] = output['timetoprogression'].round(1)
     output = output[[
-        'FID', 'IID', 'RR_SP', 'PP', 'ageatonset', 'duration',
+        'FID', 'IID', 'NHC', 'EDMUS', 'RR_SP', 'PP', 'ageatonset', 'duration',
         'timetoiedss3', 'timetoiedss6', 'timetoprogression',
         'arr', 'arr_y1', 'arr_y1_2', 'arr_y1_3', 'arr_y1_5',
     ]].sort_values(['FID', 'IID'])
 
 elif args.output == 'unmerged':
-    output = ufem_samples.merge(
-        ufem_db_personal.assign(nhc=lambda df: pd.to_numeric(df['Other identifier'], errors='coerce')),
-        on='nhc', how='left'
-    )
+    output = ufem_samples.merge(ufem_db_personal, left_on='nhc', right_on='Other identifier')
     output = output.loc[output['Patient ID'].isna(), ['sample_id', 'nhc', 'date']]
 
 outbuf = io.StringIO()
