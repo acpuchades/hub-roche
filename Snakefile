@@ -21,30 +21,32 @@ rule clean:
 
 rule generate_control_phenotypes_file:
     input:
-        helpers="src/helpers.py",
-        script="src/make-pheno-ufela.py",
-        samples="data/ufela/samples-20240201.xlsx"
+        ufem_cli="src/make-pheno-ufem.py",
+        ufem_samples="data/ufem/samples-20240201.xlsx",
+        ufela_cli="src/make-pheno-ufela.py",
+        ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
     output: "output/phenotypes/controls.pheno"
-    shell: "{input.script} --samples {input.samples:q} --output controls > {output:q}"
+    shell: "{input.ufela_cli:q} --samples {input.ufela_samples:q} --output controls > {output:q} && \
+            {input.ufem_cli:q} --samples {input.ufem_samples:q} --output controls | tail -n +2 >> {output:q}"
 
 rule generate_als_phenotypes_file:
     input:
         helpers="src/helpers.py",
-        script="src/make-pheno-ufela.py",
-        samples="data/ufela/samples-20240201.xlsx",
+        ufela_cli="src/make-pheno-ufela.py",
+        ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
         ufela_db="data/ufela/formulario_2023-11-15.sqlite"
     output: "output/phenotypes/als.pheno"
-    shell: "{input.script} --samples {input.samples:q} --database {input.ufela_db:q} --output patients > {output:q}"
+    shell: "{input.ufela_cli} --samples {input.ufela_samples:q} --database {input.ufela_db:q} --output patients > {output:q}"
 
 rule generate_ms_phenotypes_file:
     input:
         helpers="src/helpers.py",
-        script="src/make-pheno-ufem.py",
-        samples="data/ufem/samples-20240201.xlsx",
-        nhc="data/ufem/FClinica.xlsx",
-        edmus_db="data/ufem"
+        ufem_cli="src/make-pheno-ufem.py",
+        ufem_samples="data/ufem/samples-20240201.xlsx",
+        ufem_ids="data/ufem/FClinica.xlsx",
+        ufem_db="data/ufem"
     output: "output/phenotypes/ms.pheno"
-    shell: "{input.script} --samples {input.samples:q} --nhc {input.nhc:q} --database {input.edmus_db:q} > {output:q}"
+    shell: "{input.ufem_cli} --samples {input.ufem_samples:q} --nhc {input.ufem_ids:q} --database {input.ufem_db:q} > {output:q}"
 
 rule generate_assoc_phenotype_file:
     input:

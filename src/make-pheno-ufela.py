@@ -23,61 +23,27 @@ def make_argument_parser():
 parser = make_argument_parser()
 args = parser.parse_args()
 
-ufela_samples = (
-    pd
-        .read_excel(args.samples)
-        .rename(columns={
-            'Caso Noraybanks': 'noraybanks_id',
-            'Unnamed: 1': 'sample_ids_and_comments',
-            'Nombre': 'patient_name',
-            'SAP': 'nhc',
-            'Dtco': 'phenotype',
-            'Fecha muestra': 'date'
-        })
-        .assign(
-            # explode samples with more than one sample_id while preserving comments
-            sample_id = lambda df: 'ELA-' + df.sample_ids_and_comments.str.extract(r'^ELA[- ]?0*(\d+\s?(?:\(\d+\))?)'),
-            sample_id2 = lambda df: 'ELA-' + df.sample_ids_and_comments.str.extract(r'/\s*ELA[- ]0*?(\d+\s?(?:\(\d+\))?)'),
-            comments = lambda df: df.sample_ids_and_comments.str.extract(r'\(([^0-9][^)]+)\)\s*$')
-        )
-)
-
-ufela_samples = (
-    pd
-        .concat([
-            ufela_samples.drop(columns='sample_id2'),
-            ufela_samples[ufela_samples.sample_id2.notna()].drop(columns='sample_id').rename(columns={'sample_id2': 'sample_id'}),
-            ufela_samples[ufela_samples.noraybanks_id.notna()].drop(columns='sample_id').rename(columns={'noraybanks_id': 'sample_id'}),
-        ])
-        .dropna(subset=['sample_id', 'nhc'])
-        .assign(
-            nhc = lambda df: pd.to_numeric(df.nhc, errors='coerce'),
-            sample_id = lambda df: df.sample_id.str.strip().map(normalize_sample_id, na_action='ignore')
-        )
-        [[
-            'sample_id', 'date', 'nhc', 'patient_name', 'phenotype', 'comments'
-        ]]
-)
+ufela_samples = pd.read_excel(args.samples).drop_duplicates(subset='ID Muestra')
 
 if args.output == 'controls':
 
     ufela_controls = (
         ufela_samples
             [
-                ufela_samples.patient_name.str.contains('control', case=False, na=False) |
-                ufela_samples.phenotype.str.contains('control', case=False, na=False)
+                ufela_samples['Nombre'].str.contains('control', case=False, na=False) |
+                ufela_samples['Diagnóstico'].str.contains('control', case=False, na=False)
             ]
-            .drop(columns='date')
+            .drop(columns='Fecha muestra')
     )
 
     output = ufela_controls.copy()
-    output['FID'] = output['IID'] = output.sample_id
+    output['FID'] = output['IID'] = output['ID Muestra']
     output = output[['FID', 'IID']].sort_values(['FID', 'IID'])
 
 elif args.output in ['patients', 'unmerged']:
 
     if args.database is None:
-        parser.error("--database is required for generating output file")
+        parser.error("option --database is required")
 
     with sqlite3.connect(args.database) as ufela_db:
         ufela_db_patients = (
@@ -188,8 +154,8 @@ elif args.output in ['patients', 'unmerged']:
     )
 
     if args.output == 'patients':
-        output = pd.merge(ufela_samples, ufela_patients, on='nhc').dropna(subset='sample_id')
-        output['FID'] = output['IID'] = output.sample_id
+        output = pd.merge(ufela_samples, ufela_patients, left_on='SAP', right_on='nhc')
+        output['FID'] = output['IID'] = output['ID Muestra']
         output['NHC'] = output.nhc
         output['ALS'] = np.where(output.fenotipo == 'ALS', 2, 1)
         output['PLS'] = np.where(output.fenotipo == 'PLS', 2, 1)
@@ -209,8 +175,8 @@ elif args.output in ['patients', 'unmerged']:
         ]].sort_values(['FID', 'IID'])
 
     elif args.output == 'unmerged':
-        output = pd.merge(ufela_samples, ufela_db_patients, on='nhc', how='left')
-        output = output.loc[output.pid.isna(), ['sample_id', 'nhc', 'date']]
+        output = pd.merge(ufela_samples, ufela_db_patients, left_on='SAP', right_on='nhc', how='left')
+        output = output.loc[output.pid.isna(), ['ID Muestra', 'SAP', 'Fecha muestra']]
 
 outbuf = io.StringIO()
 output.to_csv(outbuf, sep='\t', index=False, na_rep='-9')
