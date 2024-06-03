@@ -17,74 +17,6 @@ rule all:
 rule clean:
     shell: "rm -rf output"
 
-rule generate_pipeline_graph:
-    output: "output/report/pipeline.pdf"
-    shell: "snakemake --forceall --rulegraph | dot -Tpdf > {output:q}"
-
-rule generate_control_phenotypes_file:
-    input:
-        ufem_cli="src/make-pheno-ufem.py",
-        ufem_samples="data/ufem/samples-20240201.xlsx",
-        ufela_cli="src/make-pheno-ufela.py",
-        ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
-    output: "output/phenotypes/controls.pheno"
-    shell: "{input.ufela_cli:q} --samples {input.ufela_samples:q} --output controls > {output:q} && \
-            {input.ufem_cli:q} --samples {input.ufem_samples:q} --output controls | tail -n +2 >> {output:q}"
-
-rule generate_als_phenotypes_file:
-    input:
-        helpers="src/helpers.py",
-        ufela_cli="src/make-pheno-ufela.py",
-        ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
-        ufela_db="data/ufela/formulario_2023-11-15.sqlite"
-    output: "output/phenotypes/als.pheno"
-    shell: "{input.ufela_cli} --samples {input.ufela_samples:q} --database {input.ufela_db:q} --output patients > {output:q}"
-
-rule generate_ms_phenotypes_file:
-    input:
-        helpers="src/helpers.py",
-        ufem_cli="src/make-pheno-ufem.py",
-        ufem_samples="data/ufem/samples-20240201.xlsx",
-        ufem_ids="data/ufem/FClinica.xlsx",
-        ufem_db="data/ufem"
-    output: "output/phenotypes/ms.pheno"
-    shell: "{input.ufem_cli} --samples {input.ufem_samples:q} --nhc {input.ufem_ids:q} --database {input.ufem_db:q} > {output:q}"
-
-rule generate_assoc_phenotype_file:
-    input:
-        cases="output/phenotypes/{pheno}.pheno",
-        controls="output/phenotypes/controls.pheno"
-    output: "output/phenotypes/{pheno}-assoc.pheno"
-    shell: "\
-        printf FID\\\\tIID\\\\t{wildcards.pheno}\\\\n | tr '[:lower:]' '[:upper:]' > {output:q} && \
-        tail -n +2 {input.cases:q} | awk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 2}}' >> {output:q} && \
-        tail -n +2 {input.controls:q} | awk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 1}}' >> {output:q} \
-    "
-
-rule generate_vcf_debug_file:
-    input: "output/renamed-variants/samples.original.txt"
-    output: "output/debug/vcf.txt"
-    shell: "cp {input:q} {output:q}"
-
-rule generated_vcf_normalized_debug_file:
-    input: "output/renamed-variants/samples.normalized.txt"
-    output: "output/debug/vcf-normalized.txt"
-    shell: "cp {input:q} {output:q}"
-
-rule generate_pheno_debug_file:
-    input: "output/phenotypes/{pheno}.pheno"
-    output: "output/debug/{pheno}.txt"
-    shell: "tail -n +2 {input:q} | cut -d $'\t' -f2 | sort -k 1,1 > {output:q}"
-
-rule generate_vcf_unmerged_debug_file:
-    input:
-        als_pheno="output/debug/als.txt",
-        ms_pheno="output/debug/ms.txt",
-        controls_pheno="output/debug/controls.txt",
-        vcf_normalized="output/debug/vcf-normalized.txt"
-    output: "output/debug/vcf.unmerged.txt"
-    shell: "cat {input.vcf_normalized:q} | grep -f {input.als_pheno:q} -v | grep -f {input.ms_pheno:q} -v | grep -f {input.controls_pheno:q} -v | sort -n -k1,1 > {output:q}"
-
 rule compress_file_bgzip:
     input: "output/{path}"
     output: "output/{path}.gz"
@@ -336,3 +268,48 @@ rule extract_principal_components_from_variants:
     input: "output/common-variants/plink.bed"
     output: multiext("output/common-variants/plink", ".eigenvec", ".eigenval")
     shell: "plink --bfile output/common-variants/plink --pca --out output/common-variants/plink"
+
+
+rule generate_control_phenotypes_file:
+    input:
+        ufem_cli="src/make-pheno-ufem.py",
+        ufem_samples="data/ufem/samples-20240201.xlsx",
+        ufela_cli="src/make-pheno-ufela.py",
+        ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
+    output: "output/phenotypes/controls.pheno"
+    shell: "{input.ufela_cli:q} --samples {input.ufela_samples:q} --output controls > {output:q} && \
+            {input.ufem_cli:q} --samples {input.ufem_samples:q} --output controls | tail -n +2 >> {output:q}"
+
+rule generate_als_phenotypes_file:
+    input:
+        helpers="src/helpers.py",
+        ufela_cli="src/make-pheno-ufela.py",
+        ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
+        ufela_db="data/ufela/formulario_2023-11-15.sqlite"
+    output: "output/phenotypes/als.pheno"
+    shell: "{input.ufela_cli} --samples {input.ufela_samples:q} --database {input.ufela_db:q} --output patients > {output:q}"
+
+rule generate_ms_phenotypes_file:
+    input:
+        helpers="src/helpers.py",
+        ufem_cli="src/make-pheno-ufem.py",
+        ufem_samples="data/ufem/samples-20240201.xlsx",
+        ufem_ids="data/ufem/FClinica.xlsx",
+        ufem_db="data/ufem"
+    output: "output/phenotypes/ms.pheno"
+    shell: "{input.ufem_cli} --samples {input.ufem_samples:q} --nhc {input.ufem_ids:q} --database {input.ufem_db:q} > {output:q}"
+
+rule generate_assoc_phenotype_file:
+    input:
+        cases="output/phenotypes/{pheno}.pheno",
+        controls="output/phenotypes/controls.pheno"
+    output: "output/phenotypes/{pheno}-assoc.pheno"
+    shell: "\
+        printf FID\\\\tIID\\\\t{wildcards.pheno}\\\\n | tr '[:lower:]' '[:upper:]' > {output:q} && \
+        tail -n +2 {input.cases:q} | awk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 2}}' >> {output:q} && \
+        tail -n +2 {input.controls:q} | awk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 1}}' >> {output:q} \
+    "
+
+rule generate_pipeline_graph:
+    output: "output/report/pipeline.pdf"
+    shell: "snakemake --forceall --rulegraph | dot -Tpdf > {output:q}"
