@@ -8,9 +8,7 @@ sys.path.insert(1, './src')
 
 rule all:
     input:
-        "output/debug/vcf.txt",
-        "output/debug/vcf-normalized.txt",
-        "output/debug/vcf.unmerged.txt",
+        "output/clinvar-annotated-variants/annotated.vcf.gz",
         "output/phenotypes/ms-assoc.pheno",
         "output/phenotypes/als-assoc.pheno",
         "output/common-variants/plink.bed",
@@ -18,6 +16,10 @@ rule all:
 
 rule clean:
     shell: "rm -rf output"
+
+rule generate_pipeline_graph:
+    output: "output/report/pipeline.pdf"
+    shell: "snakemake --forceall --rulegraph | dot -Tpdf > {output:q}"
 
 rule generate_control_phenotypes_file:
     input:
@@ -142,8 +144,46 @@ rule merge_vcf_files:
     input:
         vcf = expand("output/fixed-variants/{sample}.vcf.gz", sample=samples),
         tbi = expand("output/fixed-variants/{sample}.vcf.gz.tbi", sample=samples)
-    output: "output/merged-variants/merged.vcf"
-    shell: "bcftools merge {input.vcf:q} -Ov -o {output:q}"
+    output: "output/merged-variants/merged.vcf.gz"
+    shell: "bcftools merge {input.vcf:q} -Oz -o {output:q}"
+
+rule extract_variant_file_sample_names:
+    input: "output/merged-variants/merged.vcf.gz"
+    output: "output/renamed-variants/samples.original.txt"
+    shell: "bcftools query --list-samples {input:q} > {output:q}"
+
+rule normalize_sample_names:
+    input:
+        helpers="src/helpers.py",
+        sample_names="output/renamed-variants/samples.original.txt"
+    output: "output/renamed-variants/samples.normalized.txt"
+    run:
+        from helpers import normalize_sample_id
+        with open(input.sample_names, 'r') as f:
+            with open(output[0], 'w') as out:
+                for line in f.readlines():
+                    name = line.rstrip('\n')
+                    name = normalize_sample_id(name)
+                    print(name, file=out)
+
+rule rename_variant_file_samples:
+    input:
+        vcf="output/merged-variants/merged.vcf.gz",
+        normalized_names="output/renamed-variants/samples.normalized.txt"
+    output: "output/renamed-variants/renamed-unsorted.vcf.gz"
+    shell: "bcftools reheader -s {input.normalized_names:q} -o {output:q} {input.vcf:q}"
+
+rule sort_normalized_sample_names:
+    input: "output/renamed-variants/samples.normalized.txt"
+    output: "output/renamed-variants/samples.sorted.txt"
+    shell: "sort -k1,1 {input:q} > {output:q}"
+
+rule sort_renamed_variant_file_samples:
+    input:
+        vcf="output/renamed-variants/renamed-unsorted.vcf.gz",
+        sorted_names="output/renamed-variants/samples.sorted.txt"
+    output: "output/renamed-variants/renamed.vcf"
+    shell: "bcftools view -S {input.sorted_names} -Ov -o {output:q} {input.vcf:q}"
 
 rule download_annovar_dbfile:
     output: "vendor/annovar/humandb/{dbfile}"
@@ -156,10 +196,10 @@ rule annovar_annotate_merged_variants:
         av_hg38_knowngene_kgxref="vendor/annovar/humandb/hg38_kgXref.txt",
         av_hg38_knowngene_mrna="vendor/annovar/humandb/hg38_knownGeneMrna.fa",
         av_hg38_dbnsfp30a="vendor/annovar/humandb/hg38_dbnsfp30a.txt",
-        vcf="output/merged-variants/merged.vcf"
-    output: multiext("output/annovar-annotated-variants/merged.hg38_multianno", ".vcf", ".txt")
+        vcf="output/renamed-variants/renamed.vcf"
+    output: multiext("output/annovar-annotated-variants/annotated.hg38_multianno", ".vcf", ".txt")
     shell: "{input.av_tableav} -buildver hg38 {input.vcf:q} \
-            -out output/annovar-annotated-variants/merged \
+            -out output/annovar-annotated-variants/annotated \
             -protocol refGene,cytoBand,dbnsfp30a \
             -operation g,r,f -nastring . -vcfinput -polish \
             vendor/annovar/humandb"
@@ -177,7 +217,7 @@ rule vep_annotate_merged_variants:
     input:
         vep_cache="vendor/vep/homo_sapiens",
         hg38="vendor/genomes/uncompressed/hg38.fa",
-        vcf="output/merged-variants/merged.vcf"
+        vcf="output/renamed-variants/renamed.vcf"
     output: "output/vep-annotated-variants/merged.vcf"
     shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --sift b --polyphen b --hgvs --vcf -o {output:q}"
 
@@ -211,7 +251,7 @@ rule interpolate_vcfanno_gnomad_file_nuclear:
     input:
         config="config/gnomad.conf.in",
         gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz"
-    output: "output/gnomad-annotated-variants/vcfanno.{chrN,^chrM}.conf"
+    output: "output/gnomad-annotated-variants/vcfanno.{chrN}.conf"
     shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
 
 rule gnomad_annotate_mitochondrial_variants:
@@ -229,7 +269,7 @@ rule gnomad_annotate_nuclear_variants:
         gnomad_tbi="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz.tbi",
         vcfanno_config="output/gnomad-annotated-variants/vcfanno.{chrN}.conf",
         vcf="output/vep-annotated-variants/split.{chrN}.vcf.gz"
-    output: "output/gnomad-annotated-variants/annotated.{chrN,^chrM}.vcf"
+    output: "output/gnomad-annotated-variants/annotated.{chrN}.vcf"
     shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule concat_gnomad_annotated_variant_files:
@@ -272,56 +312,18 @@ rule clinvar_annotate_variants:
     output: "output/clinvar-annotated-variants/annotated.vcf"
     shell: "vcfanno -p {workflow.cores} -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
-rule extract_variant_file_sample_names:
-    input: "output/clinvar-annotated-variants/annotated.vcf"
-    output: "output/renamed-variants/samples.original.txt"
-    shell: "bcftools query --list-samples {input:q} > {output:q}"
-
-rule normalize_sample_names:
-    input:
-        helpers="src/helpers.py",
-        sample_names="output/renamed-variants/samples.original.txt"
-    output: "output/renamed-variants/samples.normalized.txt"
-    run:
-        from helpers import normalize_sample_id
-        with open(input.sample_names, 'r') as f:
-            with open(output[0], 'w') as out:
-                for line in f.readlines():
-                    name = line.rstrip('\n')
-                    name = normalize_sample_id(name)
-                    print(name, file=out)
-
-rule rename_variant_file_samples:
-    input:
-        vcf="output/clinvar-annotated-variants/annotated.vcf",
-        normalized_names="output/renamed-variants/samples.normalized.txt"
-    output: "output/renamed-variants/renamed.vcf"
-    shell: "bcftools reheader -s {input.normalized_names:q} -o {output:q} {input.vcf:q}"
-
-rule sort_normalized_sample_names:
-    input: "output/renamed-variants/samples.normalized.txt"
-    output: "output/renamed-variants/samples.sorted.txt"
-    shell: "sort -k1,1 {input:q} > {output:q}"
-
-rule sort_renamed_variant_file_samples:
-    input:
-        vcf="output/renamed-variants/renamed.vcf",
-        sorted_names="output/renamed-variants/samples.sorted.txt"
-    output: "output/renamed-variants/sorted.bcf"
-    shell: "bcftools view -S {input.sorted_names} -Ob -o {output:q} {input.vcf:q}"
-
 rule filter_common_variants_by_maf:
-    input: "output/renamed-variants/sorted.bcf"
+    input: "output/clinvar-annotated-variants/annotated.vcf.gz"
     output: "output/common-variants/maf_filtered.ge.0.05.bcf"
     shell: "bcftools view -i 'gno_af_all > 0.05' -Ob -o {output:q} {input:q}"
 
 rule filter_annotated_variants_with_maf_lesser_than:
-    input: "output/renamed-variants/sorted.bcf"
+    input: "output/clinvar-annotated-variants/annotated.vcf.gz"
     output: "output/rare-variants/maf_filtered.lt.{threshold}.bcf"
     shell: "bcftools view -i 'gno_af_all < {wildcards.threshold}' -Ob -o {output:q} {input:q}"
 
 rule filter_rare_variants_maf_unknown:
-    input: "output/renamed-variants/sorted.bcf"
+    input: "output/clinvar-annotated-variants/annotated.vcf.gz"
     output: "output/rare-variants/maf_filtered.unknown.bcf"
     shell: "bcftools view -e 'gno_af_all' -Ob -o {output:q} {input:q}"
 

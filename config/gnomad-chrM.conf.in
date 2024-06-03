@@ -1,8 +1,8 @@
 [[annotation]]
 file = "${GNOMAD_VCF_FILE}"
-fields = ["AC_hom", "AC_het", "AN"]
-names = ["gno_ac_hom_all", "gno_ac_het_all", "gno_an_all"]
-ops = ["self", "self", "self"]
+fields = ["ID", "FILTER", "AC_hom", "AC_het", "AN"]
+names = ["gno_id", "gno_filter", "gno_ac_hom_all", "gno_ac_het_all", "gno_an_all"]
+ops = ["self", "self", "self", "self", "self"]
 
 [[postannotation]]
 fields=["gno_ac_hom_all", "gno_an_all"]
