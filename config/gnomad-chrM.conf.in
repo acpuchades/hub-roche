@@ -1,0 +1,17 @@
+[[annotation]]
+file = "${GNOMAD_VCF_FILE}"
+fields = ["AC_hom", "AC_het", "AN"]
+names = ["gno_ac_hom_all", "gno_ac_het_all", "gno_an_all"]
+ops = ["self", "self", "self"]
+
+[[postannotation]]
+fields=["gno_ac_hom_all", "gno_an_all"]
+name="gno_af_hom_all"
+op="div2"
+type="Float"
+
+[[postannotation]]
+fields=["gno_ac_het_all", "gno_an_all"]
+name="gno_af_het_all"
+op="div2"
+type="Float"

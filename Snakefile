@@ -200,12 +200,28 @@ rule download_dbsnp_files:
     output: "vendor/dbsnp/GRCh38/{file}"
     shell: "curl 'https://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/{wildcards.file}' -o {output:q}"
 
+rule interpolate_vcfanno_gnomad_file_mitochondrial:
+    input:
+        config="config/gnomad-chrM.conf.in",
+        gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz"
+    output: "output/gnomad-annotated-variants/vcfanno.chrM.conf"
+    shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
+
 rule interpolate_vcfanno_gnomad_file_nuclear:
     input:
         config="config/gnomad.conf.in",
         gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz"
-    output: "output/gnomad-annotated-variants/vcfanno.{chrN}.conf"
+    output: "output/gnomad-annotated-variants/vcfanno.{chrN,^chrM}.conf"
     shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
+
+rule gnomad_annotate_mitochondrial_variants:
+    input:
+        gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz",
+        gnomad_tbi="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz.tbi",
+        vcfanno_config="output/gnomad-annotated-variants/vcfanno.chrM.conf",
+        vcf="output/vep-annotated-variants/split.chrM.vcf.gz"
+    output: "output/gnomad-annotated-variants/annotated.chrM.vcf"
+    shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule gnomad_annotate_nuclear_variants:
     input:
@@ -213,17 +229,15 @@ rule gnomad_annotate_nuclear_variants:
         gnomad_tbi="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz.tbi",
         vcfanno_config="output/gnomad-annotated-variants/vcfanno.{chrN}.conf",
         vcf="output/vep-annotated-variants/split.{chrN}.vcf.gz"
-    output: "output/gnomad-annotated-variants/annotated.{chrN}.vcf"
+    output: "output/gnomad-annotated-variants/annotated.{chrN,^chrM}.vcf"
     shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule concat_gnomad_annotated_variant_files:
     input:
-        vcf=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz", N=auto_chrN),
-        tbi=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz.tbi", N=auto_chrN),
-        chrM_vcf="output/vep-annotated-variants/split.chrM.vcf.gz",
-        chrM_tbi="output/vep-annotated-variants/split.chrM.vcf.gz.tbi",
+        vcf=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz", N=all_chrN),
+        tbi=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz.tbi", N=all_chrN)
     output: "output/gnomad-annotated-variants/annotated.bcf"
-    shell: "bcftools concat {input.vcf:q} {input.chrM_vcf:q} -Ob -o {output:q}"
+    shell: "bcftools concat {input.vcf:q} -Ob -o {output:q}"
 
 rule generate_chr_conversion_file:
     output: "output/gnomad-annotated-variants/chr-conv.txt"
