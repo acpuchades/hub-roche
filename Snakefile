@@ -8,11 +8,11 @@ sys.path.insert(1, './src')
 
 rule all:
     input:
-        "output/clinvar-annotated-variants/annotated.vcf.gz",
-        "output/phenotypes/ms-assoc.pheno",
-        "output/phenotypes/als-assoc.pheno",
-        "output/common-variants/plink.bed",
-        "output/common-variants/plink.eigenvec"
+        "output/merged-variants/merged.vcf.gz",
+        "output/report-stats/coverage-stats.tsv",
+        "output/vep-annotated-variants/merged.vcf",
+        "output/gnomad-annotated-variants/annotated.bcf",
+        "output/clinvar-annotated-variants/annotated.vcf"
 
 rule clean:
     shell: "rm -rf output"
@@ -43,7 +43,7 @@ rule download_ucsc_hg38_ref_files:
 rule concat_hg38_ref_files:
     input: "vendor/genomes/{genome}"
     output: "vendor/genomes/uncompressed/{genome}.fa"
-    shell: "find {input:q} -name '*.fa.gz' -exec gunzip -c {{}} >> {output:q} \\;"
+    shell: "find {input:q} -name '*.fa.gz' | sort -V | xargs gunzip -c > {output:q}"
 
 rule unpack_annovar:
     input: "vendor/annovar.latest.tar.gz"
@@ -55,29 +55,53 @@ rule sort_vcf_file:
     output: "output/sorted-variants/{sample}.vcf.gz"
     shell: "bcftools sort -Oz {input:q} -o {output:q}"
 
-rule spread_multiline_vcf_file:
-    input: "output/sorted-variants/{sample}.vcf.gz"
-    output: "output/spread-variants/{sample}.vcf.gz"
-    shell: "bcftools norm -m-both -Oz {input:q} -o {output:q}"
-
 rule left_align_vcf_file:
     input:
         hg38="vendor/genomes/uncompressed/hg38.fa",
-        vcf="output/spread-variants/{sample}.vcf.gz"
-    output: "output/normalized-variants/{sample}.vcf.gz"
+        vcf="output/sorted-variants/{sample}.vcf.gz"
+    output: "output/leftaligned-variants/{sample}.vcf.gz"
     shell: "bcftools norm -f {input.hg38:q} -Oz {input.vcf:q} -o {output:q}"
+
+rule spread_multiallelic_vcf_file:
+    input: "output/leftaligned-variants/{sample}.vcf.gz"
+    output: "output/normalized-variants/{sample}.vcf.gz"
+    shell: "bcftools norm -m -both -Oz {input:q} -o {output:q}"
 
 rule remove_format_pl_from_vcf_file:
     input: "output/normalized-variants/{sample}.vcf.gz"
-    output: "output/fixed-variants/{sample}.vcf.gz"
+    output: "output/noformatpl-variants/{sample}.vcf.gz"
     shell: "bcftools annotate -x FORMAT/PL -Oz {input:q} -o {output:q}"
 
 rule merge_vcf_files:
     input:
-        vcf = expand("output/fixed-variants/{sample}.vcf.gz", sample=samples),
-        tbi = expand("output/fixed-variants/{sample}.vcf.gz.tbi", sample=samples)
+        vcf = expand("output/noformatpl-variants/{sample}.vcf.gz", sample=samples),
+        tbi = expand("output/noformatpl-variants/{sample}.vcf.gz.tbi", sample=samples)
     output: "output/merged-variants/merged.vcf.gz"
-    shell: "bcftools merge {input.vcf:q} -Oz -o {output:q}"
+    shell: "bcftools merge -m none {input.vcf:q} -Oz -o {output:q}"
+
+rule extract_variant_depths:
+    input: "output/merged-variants/merged.vcf.gz"
+    output: "output/report-stats/depth.txt"
+    shell: "bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t[%DP\t]\n' {input:q} > {output:q}"
+
+rule calculate_variant_mean_depth:
+    input: "output/report-stats/depth.txt"
+    output: "output/report-stats/coverage-stats.tsv"
+    shell: "gawk 'BEGIN {{ \
+        OFS = \"\t\"; \
+        print \"CHROM\",\"POS\",\"REF\",\"ALT\", \"COUNT\",\"COVERAGE_20X\",\"AVGDP\"; \
+    }} {{ \
+        count = 0; \
+        dpsum = 0; \
+        coverage20 = 0; \
+        for(i=5; i<=NF; i++) {{ \
+            if ($i == \".\") continue; \
+            if ($i >= 20) coverage20++; \
+            dpsum += $i; \
+            count++; \
+        }} \
+        print $1, $2, $3, $4, count, coverage20, dpsum/count \
+    }}' {input:q} > {output:q}"
 
 rule extract_variant_file_sample_names:
     input: "output/merged-variants/merged.vcf.gz"
@@ -86,7 +110,6 @@ rule extract_variant_file_sample_names:
 
 rule normalize_sample_names:
     input:
-        helpers="src/helpers.py",
         sample_names="output/renamed-variants/samples.original.txt"
     output: "output/renamed-variants/samples.normalized.txt"
     run:
@@ -151,7 +174,7 @@ rule vep_annotate_merged_variants:
         hg38="vendor/genomes/uncompressed/hg38.fa",
         vcf="output/renamed-variants/renamed.vcf"
     output: "output/vep-annotated-variants/merged.vcf"
-    shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --sift b --polyphen b --hgvs --vcf -o {output:q}"
+    shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --everything --vcf -o {output:q}"
 
 rule split_vep_annotated_variant_files:
     input:
@@ -269,41 +292,38 @@ rule extract_principal_components_from_variants:
     output: multiext("output/common-variants/plink", ".eigenvec", ".eigenval")
     shell: "plink --bfile output/common-variants/plink --pca --out output/common-variants/plink"
 
-
 rule generate_control_phenotypes_file:
     input:
         ufem_cli="src/make-pheno-ufem.py",
         ufem_samples="data/ufem/samples-20240201.xlsx",
         ufela_cli="src/make-pheno-ufela.py",
         ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
-    output: "output/phenotypes/controls.pheno"
+    output: "output/phenotype-files/controls.pheno"
     shell: "{input.ufela_cli:q} --samples {input.ufela_samples:q} --output controls > {output:q} && \
             {input.ufem_cli:q} --samples {input.ufem_samples:q} --output controls | tail -n +2 >> {output:q}"
 
 rule generate_als_phenotypes_file:
     input:
-        helpers="src/helpers.py",
         ufela_cli="src/make-pheno-ufela.py",
         ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
         ufela_db="data/ufela/formulario_2023-11-15.sqlite"
-    output: "output/phenotypes/als.pheno"
+    output: "output/phenotype-files/als.pheno"
     shell: "{input.ufela_cli} --samples {input.ufela_samples:q} --database {input.ufela_db:q} --output patients > {output:q}"
 
 rule generate_ms_phenotypes_file:
     input:
-        helpers="src/helpers.py",
         ufem_cli="src/make-pheno-ufem.py",
         ufem_samples="data/ufem/samples-20240201.xlsx",
         ufem_ids="data/ufem/FClinica.xlsx",
         ufem_db="data/ufem"
-    output: "output/phenotypes/ms.pheno"
+    output: "output/phenotype-files/ms.pheno"
     shell: "{input.ufem_cli} --samples {input.ufem_samples:q} --nhc {input.ufem_ids:q} --database {input.ufem_db:q} > {output:q}"
 
 rule generate_assoc_phenotype_file:
     input:
-        cases="output/phenotypes/{pheno}.pheno",
-        controls="output/phenotypes/controls.pheno"
-    output: "output/phenotypes/{pheno}-assoc.pheno"
+        cases="output/phenotype-files/{pheno}.pheno",
+        controls="output/phenotype-files/controls.pheno"
+    output: "output/phenotype-files/{pheno}-assoc.pheno"
     shell: "\
         printf FID\\\\tIID\\\\t{wildcards.pheno}\\\\n | tr '[:lower:]' '[:upper:]' > {output:q} && \
         tail -n +2 {input.cases:q} | awk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 2}}' >> {output:q} && \
@@ -311,5 +331,5 @@ rule generate_assoc_phenotype_file:
     "
 
 rule generate_pipeline_graph:
-    output: "output/report/pipeline.pdf"
+    output: "output/report-stats/pipeline.pdf"
     shell: "snakemake --forceall --rulegraph | dot -Tpdf > {output:q}"

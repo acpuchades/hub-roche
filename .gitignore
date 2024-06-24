@@ -4,5 +4,6 @@
 .snakemake
 
 data/
+report/
 vendor/
 output/
