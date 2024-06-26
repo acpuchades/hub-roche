@@ -1,4 +1,4 @@
-samples, = glob_wildcards("data/vcf/{sample}.vcf.gz")
+samples, = glob_wildcards("data/laboratorio/vcf/{sample}.vcf.gz")
 
 auto_chrN = list(map(str, range(1, 23)))
 nuclear_chrN = auto_chrN + ['X', 'Y']
@@ -12,7 +12,8 @@ rule all:
         "output/report-stats/coverage-stats.tsv",
         "output/vep-annotated-variants/merged.vcf",
         "output/gnomad-annotated-variants/annotated.bcf",
-        "output/clinvar-annotated-variants/annotated.vcf"
+        "output/clinvar-annotated-variants/annotated.vcf",
+        expand("output/gnomad-filtered-variants/chr{N}.bcf", N=all_chrN)
 
 rule clean:
     shell: "rm -rf output"
@@ -51,7 +52,7 @@ rule unpack_annovar:
     shell: "tar -xvf {input} -C vendor"
 
 rule sort_vcf_file:
-    input: "data/vcf/{sample}.vcf.gz"
+    input: "data/laboratorio/vcf/{sample}.vcf.gz"
     output: "output/sorted-variants/{sample}.vcf.gz"
     shell: "bcftools sort -Oz {input:q} -o {output:q}"
 
@@ -227,6 +228,24 @@ rule gnomad_annotate_nuclear_variants:
     output: "output/gnomad-annotated-variants/annotated.{chrN}.vcf"
     shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
+rule intersect_mitochondrial_variants_with_gnomad:
+    input:
+        gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz",
+        gnomad_tbi="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz.tbi",
+        vcf="output/vep-annotated-variants/split.chrM.vcf.gz",
+        tbi="output/vep-annotated-variants/split.chrM.vcf.gz.tbi"
+    output: "output/gnomad-filtered-variants/chrM.bcf"
+    shell: "bcftools isec -c none -n~01 -w1 {input.vcf:q} {input.gnomad_vcf:q} -Ob -o {output:q}"
+
+rule intersect_nuclear_variants_with_gnomad:
+    input:
+        gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz",
+        gnomad_tbi="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz.tbi",
+        vcf="output/vep-annotated-variants/split.{chrN}.vcf.gz",
+        tbi="output/vep-annotated-variants/split.{chrN}.vcf.gz.tbi"
+    output: "output/gnomad-filtered-variants/{chrN}.bcf"
+    shell: "bcftools isec -c none -n~01 -w1 {input.vcf:q} {input.gnomad_vcf:q} -o {output:q} -Ob"
+
 rule concat_gnomad_annotated_variant_files:
     input:
         vcf=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz", N=all_chrN),
@@ -276,11 +295,6 @@ rule filter_annotated_variants_with_maf_lesser_than:
     input: "output/clinvar-annotated-variants/annotated.vcf.gz"
     output: "output/rare-variants/maf_filtered.lt.{threshold}.bcf"
     shell: "bcftools view -i 'gno_af_all < {wildcards.threshold}' -Ob -o {output:q} {input:q}"
-
-rule filter_rare_variants_maf_unknown:
-    input: "output/clinvar-annotated-variants/annotated.vcf.gz"
-    output: "output/rare-variants/maf_filtered.unknown.bcf"
-    shell: "bcftools view -e 'gno_af_all' -Ob -o {output:q} {input:q}"
 
 rule convert_common_variants_to_plink:
     input: "output/common-variants/maf_filtered.ge.0.05.bcf"

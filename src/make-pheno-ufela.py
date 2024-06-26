@@ -143,10 +143,7 @@ elif args.output == "patients":
     )
 
     alsfrs_baselines = (
-        ufela_alsfrs
-            [[
-                'pid', 'fecha_visita', 'delta_fs'
-            ]]
+        ufela_alsfrs[['pid', 'fecha_visita', 'delta_fs']]
             .dropna()
             .sort_values(['pid', 'fecha_visita'])
             .groupby('pid')
@@ -165,11 +162,6 @@ elif args.output == "patients":
             ['pid', 'delta_fs']
         ], on='pid', how='left'
     )
-
-    # print(ufela_samples.nhc.values)
-
-    # import sys
-    # sys.exit(0)
 
     output = ufela_patients.copy()
     output['FID'] = output['IID'] = output.id_noraybanks
