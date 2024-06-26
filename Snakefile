@@ -294,21 +294,19 @@ rule extract_principal_components_from_variants:
 
 rule generate_control_phenotypes_file:
     input:
-        ufem_cli="src/make-pheno-ufem.py",
-        ufem_samples="data/ufem/samples-20240201.xlsx",
-        ufela_cli="src/make-pheno-ufela.py",
-        ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
+        vcf="output/renamed-variants/renamed.vcf",
+        ufela_db="data/ufela/formulario_2023-11-15.sqlite",
+        ufela_samples="data/biobanco/Muestras ELA.xlsx"
     output: "output/phenotype-files/controls.pheno"
-    shell: "{input.ufela_cli:q} --samples {input.ufela_samples:q} --output controls > {output:q} && \
-            {input.ufem_cli:q} --samples {input.ufem_samples:q} --output controls | tail -n +2 >> {output:q}"
+    shell: "src/make-pheno-ufela.py --vcf {input.vcf:q} --database {input.ufela_db} --samples {input.ufela_samples:q} --output controls > {output:q}"
 
 rule generate_als_phenotypes_file:
     input:
-        ufela_cli="src/make-pheno-ufela.py",
-        ufela_samples="data/ufela/samples-filtered-20240201.xlsx",
-        ufela_db="data/ufela/formulario_2023-11-15.sqlite"
+        vcf="output/renamed-variants/renamed.vcf",
+        ufela_db="data/ufela/formulario_2023-11-15.sqlite",
+        ufela_samples="data/biobanco/Muestras ELA.xlsx"
     output: "output/phenotype-files/als.pheno"
-    shell: "{input.ufela_cli} --samples {input.ufela_samples:q} --database {input.ufela_db:q} --output patients > {output:q}"
+    shell: "{input.ufela_cli} --vcf {input.vcf:q} --database {input.ufela_db:q} --samples {input.ufela_samples:q} --output patients > {output:q}"
 
 rule generate_ms_phenotypes_file:
     input:
