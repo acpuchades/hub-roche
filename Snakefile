@@ -212,7 +212,7 @@ rule gnomad_annotate_mitochondrial_variants:
         vcfanno_config="output/gnomad-annotated-variants/vcfanno.chrM.conf",
         vcf="output/vep-annotated-variants/split.chrM.vcf.gz"
     output: "output/gnomad-annotated-variants/annotated.chrM.vcf"
-    shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
+    shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule gnomad_annotate_nuclear_variants:
     input:
@@ -221,25 +221,7 @@ rule gnomad_annotate_nuclear_variants:
         vcfanno_config="output/gnomad-annotated-variants/vcfanno.{chrN}.conf",
         vcf="output/vep-annotated-variants/split.{chrN}.vcf.gz"
     output: "output/gnomad-annotated-variants/annotated.{chrN}.vcf"
-    shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
-
-rule intersect_mitochondrial_variants_with_gnomad:
-    input:
-        gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz",
-        gnomad_tbi="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz.tbi",
-        vcf="output/vep-annotated-variants/split.chrM.vcf.gz",
-        tbi="output/vep-annotated-variants/split.chrM.vcf.gz.tbi"
-    output: "output/gnomad-filtered-variants/chrM.bcf"
-    shell: "bcftools isec -c none -n~01 -w1 {input.vcf:q} {input.gnomad_vcf:q} -Ob -o {output:q}"
-
-rule intersect_nuclear_variants_with_gnomad:
-    input:
-        gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz",
-        gnomad_tbi="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz.tbi",
-        vcf="output/vep-annotated-variants/split.{chrN}.vcf.gz",
-        tbi="output/vep-annotated-variants/split.{chrN}.vcf.gz.tbi"
-    output: "output/gnomad-filtered-variants/{chrN}.bcf"
-    shell: "bcftools isec -c none -n~01 -w1 {input.vcf:q} {input.gnomad_vcf:q} -o {output:q} -Ob"
+    shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule concat_gnomad_annotated_variant_files:
     input:
@@ -279,7 +261,7 @@ rule clinvar_annotate_variants:
         vcfanno_config="output/clinvar-annotated-variants/vcfanno.conf",
         vcf="output/gnomad-annotated-variants/chr_renamed.vcf.gz"
     output: "output/clinvar-annotated-variants/annotated.vcf"
-    shell: "vcfanno -p {workflow.cores} -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
+    shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule filter_common_variants_by_maf:
     input: "output/clinvar-annotated-variants/annotated.vcf.gz"
