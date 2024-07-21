@@ -254,7 +254,10 @@ rule generate_chr_conversion_file:
     run:
         with open(output[0], "w") as out:
             for n in all_chrN:
-                print(f'chr{n}\t{n}', file=out)
+                if n == "M":
+                    print(f'chr{n}\tMT', file=out)
+                else:
+                    print(f'chr{n}\t{n}', file=out)
 
 rule rename_chrs_in_gnomad_annotate_variants:
     input:
