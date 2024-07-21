@@ -9,10 +9,13 @@ sys.path.insert(1, './src')
 rule all:
     input:
         "output/merged-variants/merged.vcf.gz",
-        "output/report-stats/coverage-stats.tsv",
+        "output/filtered-variants/included.vcf.gz",
+        "output/filtered-variants/excluded.vcf.gz",
         "output/vep-annotated-variants/merged.vcf",
         "output/gnomad-annotated-variants/annotated.vcf",
-        "output/clinvar-annotated-variants/annotated.vcf"
+        "output/clinvar-annotated-variants/annotated.vcf",
+        "output/analysis-report/coverage-stats.tsv",
+        "output/analysis-report/variant-stats.txt"
 
 rule clean:
     shell: "rm -rf output"
@@ -74,30 +77,6 @@ rule merge_vcf_files:
     output: "output/merged-variants/merged.vcf.gz"
     shell: "bcftools merge -m none {input.vcf:q} -Oz -o {output:q}"
 
-rule extract_variant_depths:
-    input: "output/merged-variants/merged.vcf.gz"
-    output: "output/report-stats/depth.txt"
-    shell: "bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t[%DP\t]\n' {input:q} > {output:q}"
-
-rule calculate_variant_mean_depth:
-    input: "output/report-stats/depth.txt"
-    output: "output/report-stats/coverage-stats.tsv"
-    shell: "gawk 'BEGIN {{ \
-        OFS = \"\t\"; \
-        print \"CHROM\",\"POS\",\"REF\",\"ALT\", \"COUNT\",\"COVERAGE_20X\",\"AVG_DP\"; \
-    }} {{ \
-        count = 0; \
-        dpsum = 0; \
-        coverage20 = 0; \
-        for(i=5; i<=NF; i++) {{ \
-            if ($i == \".\") continue; \
-            if ($i >= 20) coverage20++; \
-            dpsum += $i; \
-            count++; \
-        }} \
-        print $1, $2, $3, $4, count, coverage20, dpsum/count \
-    }}' {input:q} > {output:q}"
-
 rule extract_variant_file_sample_names:
     input: "output/merged-variants/merged.vcf.gz"
     output: "output/renamed-variants/samples.original.txt"
@@ -135,6 +114,16 @@ rule sort_renamed_variant_file_samples:
     output: "output/renamed-variants/renamed.vcf"
     shell: "bcftools view -S {input.sorted_names} -Ov -o {output:q} {input.vcf:q}"
 
+rule filter_vcf_files_in:
+    input: "output/renamed-variants/renamed.vcf"
+    output: "output/filtered-variants/included.vcf.gz"
+    shell: "bcftools view -f PASS {input:q} -Oz -o {output:q}"
+
+rule filter_vcf_files_out:
+    input: "output/renamed-variants/renamed.vcf"
+    output: "output/filtered-variants/excluded.vcf.gz"
+    shell: "bcftools view -f FAIL {input:q} -Oz -o {output:q}"
+
 rule download_annovar_dbfile:
     output: "vendor/annovar/humandb/{dbfile}"
     shell: "wget -q -O - http://www.openbioinformatics.org/annovar/download/{wildcards.dbfile}.gz | gunzip > {output:q}"
@@ -167,7 +156,7 @@ rule vep_annotate_merged_variants:
     input:
         vep_cache="vendor/vep/homo_sapiens",
         hg38="vendor/genomes/hg38/hg38.fa",
-        vcf="output/renamed-variants/renamed.vcf"
+        vcf="output/filtered-variants/included.vcf.gz"
     output: "output/vep-annotated-variants/merged.vcf"
     shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --everything --vcf -o {output:q}"
 
@@ -285,6 +274,37 @@ rule clinvar_annotate_variants:
     output: "output/clinvar-annotated-variants/annotated.vcf"
     shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
+rule extract_variant_depths:
+    input: "output/filtered-variants/included.vcf.gz"
+    output: "output/analysis-report/depth.txt"
+    shell: "bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t[%DP\t]\n' {input:q} > {output:q}"
+
+rule calculate_variant_mean_depth:
+    input: "output/analysis-report/depth.txt"
+    output: "output/analysis-report/coverage-stats.tsv"
+    shell: "gawk 'BEGIN {{ \
+        OFS = \"\t\"; \
+        print \"CHROM\",\"POS\",\"REF\",\"ALT\", \"COUNT\",\"COVERAGE_20X\",\"AVG_DP\"; \
+    }} {{ \
+        count = 0; \
+        dpsum = 0; \
+        coverage20 = 0; \
+        for(i=5; i<=NF; i++) {{ \
+            if ($i == \".\") continue; \
+            if ($i >= 20) coverage20++; \
+            dpsum += $i; \
+            count++; \
+        }} \
+        print $1, $2, $3, $4, count, coverage20, dpsum/count \
+    }}' {input:q} > {output:q}"
+
+rule export_variant_stats:
+    input: "output/clinvar-annotated-variants/annotated.vcf"
+    output: "output/analysis-report/variant-stats.txt"
+    shell: "bcftools +split-vep -H -d \
+        -f '%CHROM %POS %Gene %SYMBOL %FILTER %VARIANT_CLASS %gno_id %gno_af_all %clinvar_id %clinvar_sig %dbsnp_id\n' \
+        {input:q} | sort | uniq > {output:q}"
+
 rule filter_common_variants_by_maf:
     input: "output/clinvar-annotated-variants/annotated.vcf.gz"
     output: "output/common-variants/maf_filtered.ge.0.05.bcf"
@@ -342,5 +362,5 @@ rule generate_assoc_phenotype_file:
     "
 
 rule generate_pipeline_graph:
-    output: "output/report-stats/pipeline.pdf"
+    output: "output/analysis-report/pipeline.pdf"
     shell: "snakemake --forceall --rulegraph | dot -Tpdf > {output:q}"
