@@ -1,8 +1,8 @@
 [[annotation]]
 file="${CLINVAR_VCF_FILE}"
-fields=["CLNSIG", "CLNDN"]
-names=["clinvar_sig", "clinvar_disease_name"]
-ops=["self", "self"]
+fields=["ID", "CLNSIG", "CLNDN"]
+names=["clinvar_id", "clinvar_sig", "clinvar_disease_name"]
+ops=["self", "self", "self"]
 
 [[annotation]]
 file="${DBSNP_VCF_FILE}"
