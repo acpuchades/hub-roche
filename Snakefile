@@ -11,14 +11,13 @@ rule all:
         "output/merged-variants/merged.vcf.gz",
         "output/report-stats/coverage-stats.tsv",
         "output/vep-annotated-variants/merged.vcf",
-        "output/gnomad-annotated-variants/annotated.bcf",
-        "output/clinvar-annotated-variants/annotated.vcf",
-        expand("output/gnomad-filtered-variants/chr{N}.bcf", N=all_chrN)
+        "output/gnomad-annotated-variants/annotated.vcf",
+        "output/clinvar-annotated-variants/annotated.vcf"
 
 rule clean:
     shell: "rm -rf output"
 
-rule compress_file_bgzip:
+rule compress_output_file_bgzip:
     input: "output/{path}"
     output: "output/{path}.gz"
     shell: "bgzip --keep {input:q}"
@@ -85,7 +84,7 @@ rule calculate_variant_mean_depth:
     output: "output/report-stats/coverage-stats.tsv"
     shell: "gawk 'BEGIN {{ \
         OFS = \"\t\"; \
-        print \"CHROM\",\"POS\",\"REF\",\"ALT\", \"COUNT\",\"COVERAGE_20X\",\"AVGDP\"; \
+        print \"CHROM\",\"POS\",\"REF\",\"ALT\", \"COUNT\",\"COVERAGE_20X\",\"AVG_DP\"; \
     }} {{ \
         count = 0; \
         dpsum = 0; \
@@ -180,8 +179,12 @@ rule split_vep_annotated_variant_files:
     shell: "bcftools view -Oz {input.vcf:q} -o {output:q} --regions {wildcards.chrN}"
 
 rule download_gnomad_vcf_files:
-    output: "vendor/gnomad/{version}/{type}/{file}"
+    output: "vendor/gnomad/{version}/{type,^genome_sv}/{file}"
     shell: "curl 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/vcf/{wildcards.type}/{wildcards.file}' -o {output:q}"
+
+rule download_gnomad_sv_files:
+    output: "vendor/gnomad/{version}/genome_sv/{file}"
+    shell: "curl 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/genome_sv/{wildcards.file}' -o {output:q}"
 
 rule download_clinvar_files:
     output: "vendor/clinvar/{build}/{file}"
@@ -203,6 +206,13 @@ rule interpolate_vcfanno_gnomad_file_nuclear:
         config="config/gnomad.conf.in",
         gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz"
     output: "output/gnomad-annotated-variants/vcfanno.{chrN}.conf"
+    shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
+
+rule interpolate_vcfanno_gnomad_file_sv:
+    input:
+        config="config/gnomad-sv.conf.in",
+        gnomad_vcf="vendor/gnomad/4.1/genome_sv/gnomad.v4.1.sv.sites.vcf.gz"
+    output: "output/gnomad-annotated-variants/vcfanno.genome_sv.conf"
     shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
 
 rule gnomad_annotate_mitochondrial_variants:
@@ -227,8 +237,17 @@ rule concat_gnomad_annotated_variant_files:
     input:
         vcf=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz", N=all_chrN),
         tbi=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz.tbi", N=all_chrN)
-    output: "output/gnomad-annotated-variants/annotated.bcf"
-    shell: "bcftools concat {input.vcf:q} -Ob -o {output:q}"
+    output: "output/gnomad-annotated-variants/annotated-nsv.vcf"
+    shell: "bcftools concat {input.vcf:q} -Ov -o {output:q}"
+
+rule gnomad_annotate_structural_variants:
+    input:
+        gnomad_sv_vcf="vendor/gnomad/4.1/genome_sv/gnomad.v4.1.sv.sites.vcf.gz",
+        gnomad_sv_tbi="vendor/gnomad/4.1/genome_sv/gnomad.v4.1.sv.sites.vcf.gz.tbi",
+        vcfanno_config="output/gnomad-annotated-variants/vcfanno.genome_sv.conf",
+        vcf="output/gnomad-annotated-variants/annotated-nsv.vcf"
+    output: "output/gnomad-annotated-variants/annotated.vcf"
+    shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule generate_chr_conversion_file:
     output: "output/gnomad-annotated-variants/chr-conv.txt"
@@ -239,7 +258,7 @@ rule generate_chr_conversion_file:
 
 rule rename_chrs_in_gnomad_annotate_variants:
     input:
-        vcf="output/gnomad-annotated-variants/annotated.bcf",
+        vcf="output/gnomad-annotated-variants/annotated-nsv.vcf",
         chr_conv="output/gnomad-annotated-variants/chr-conv.txt"
     output: "output/gnomad-annotated-variants/chr_renamed.vcf.gz"
     shell: "bcftools annotate --rename-chrs {input.chr_conv:q} {input.vcf:q} -Oz -o {output:q}"
