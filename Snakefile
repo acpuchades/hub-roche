@@ -37,14 +37,9 @@ rule download_annovar:
     output: "vendor/annovar.latest.tar.gz"
     shell: "open https://www.openbioinformatics.org/annovar/annovar_download_form.php"
 
-rule download_ucsc_hg38_ref_files:
-    output: directory("vendor/genomes/{genome,^uncompressed}")
-    shell: "wget --timestamping 'ftp://hgdownload.cse.ucsc.edu/goldenPath/{wildcards.genome}/chromosomes/*' -P {output:q}"
-
-rule concat_hg38_ref_files:
-    input: "vendor/genomes/{genome}"
-    output: "vendor/genomes/uncompressed/{genome}.fa"
-    shell: "find {input:q} -name '*.fa.gz' | sort -V | xargs gunzip -c > {output:q}"
+rule download_ucsc_hg38_ref_genome:
+    output: "vendor/genomes/hg38/hg38.fa.gz"
+    shell: "wget -O - 'http://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz' | gunzip > {output:q}"
 
 rule unpack_annovar:
     input: "vendor/annovar.latest.tar.gz"
@@ -58,7 +53,7 @@ rule sort_vcf_file:
 
 rule left_align_vcf_file:
     input:
-        hg38="vendor/genomes/uncompressed/hg38.fa",
+        hg38="vendor/genomes/hg38/hg38.fa",
         vcf="output/sorted-variants/{sample}.vcf.gz"
     output: "output/leftaligned-variants/{sample}.vcf.gz"
     shell: "bcftools norm -f {input.hg38:q} -Oz {input.vcf:q} -o {output:q}"
@@ -172,7 +167,7 @@ rule extract_vep_cache_files:
 rule vep_annotate_merged_variants:
     input:
         vep_cache="vendor/vep/homo_sapiens",
-        hg38="vendor/genomes/uncompressed/hg38.fa",
+        hg38="vendor/genomes/hg38/hg38.fa",
         vcf="output/renamed-variants/renamed.vcf"
     output: "output/vep-annotated-variants/merged.vcf"
     shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --everything --vcf -o {output:q}"
