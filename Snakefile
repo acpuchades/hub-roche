@@ -9,8 +9,8 @@ sys.path.insert(1, './src')
 rule all:
     input:
         "output/merged-variants/merged.vcf.gz",
-        "output/filtered-variants/included.vcf.gz",
-        "output/filtered-variants/excluded.vcf.gz",
+        "output/filtered-variants/included.vcf",
+        "output/filtered-variants/excluded.vcf",
         "output/vep-annotated-variants/merged.vcf",
         "output/gnomad-annotated-variants/annotated.vcf",
         "output/clinvar-annotated-variants/annotated.vcf",
@@ -116,13 +116,13 @@ rule sort_renamed_variant_file_samples:
 
 rule filter_vcf_files_in:
     input: "output/renamed-variants/renamed.vcf"
-    output: "output/filtered-variants/included.vcf.gz"
-    shell: "bcftools view -f PASS {input:q} -Oz -o {output:q}"
+    output: "output/filtered-variants/included.vcf"
+    shell: "bcftools view -f PASS {input:q} -Ou -o {output:q}"
 
 rule filter_vcf_files_out:
     input: "output/renamed-variants/renamed.vcf"
-    output: "output/filtered-variants/excluded.vcf.gz"
-    shell: "bcftools view -f FAIL {input:q} -Oz -o {output:q}"
+    output: "output/filtered-variants/excluded.vcf"
+    shell: "bcftools view -f FAIL {input:q} -Ou -o {output:q}"
 
 rule download_annovar_dbfile:
     output: "vendor/annovar/humandb/{dbfile}"
@@ -156,7 +156,7 @@ rule vep_annotate_merged_variants:
     input:
         vep_cache="vendor/vep/homo_sapiens",
         hg38="vendor/genomes/hg38/hg38.fa",
-        vcf="output/filtered-variants/included.vcf.gz"
+        vcf="output/filtered-variants/included.vcf"
     output: "output/vep-annotated-variants/merged.vcf"
     shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --everything --vcf -o {output:q}"
 
@@ -275,7 +275,7 @@ rule clinvar_annotate_variants:
     shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule extract_variant_depths:
-    input: "output/filtered-variants/included.vcf.gz"
+    input: "output/filtered-variants/included.vcf"
     output: "output/analysis-report/depth.txt"
     shell: "bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t[%DP\t]\n' {input:q} > {output:q}"
 
