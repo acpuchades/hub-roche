@@ -39,14 +39,14 @@ rule download_annovar:
     output: "vendor/annovar.latest.tar.gz"
     shell: "open https://www.openbioinformatics.org/annovar/annovar_download_form.php"
 
-rule download_ucsc_hg38_ref_genome:
-    output: "vendor/genomes/hg38/hg38.fa.gz"
-    shell: "wget -O - 'http://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz' | gunzip > {output:q}"
-
 rule unpack_annovar:
     input: "vendor/annovar.latest.tar.gz"
     output: directory("vendor/annovar")
     shell: "tar -xvf {input} -C vendor"
+
+rule download_ucsc_hg38_ref_genome:
+    output: "vendor/genomes/hg38/hg38.fa.gz"
+    shell: "wget -O - 'http://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz' | gunzip > {output:q}"
 
 rule sort_vcf_file:
     input: "data/laboratorio/vcf/{sample}.vcf.gz"
@@ -178,16 +178,28 @@ rule index_dbnsfp_database_processed_file_GRCh38:
     output: "vendor/vep/dbnsfp/dbNSFP{version}_GRCh38.gz.tbi"
     shell: "tabix -s 1 -b 2 -e 2 {input:q}"
 
+rule download_phastCons_files:
+    output: "vendor/phastCons/{n_way}/{file}"
+    shell: "rsync -avz --progress rsync://hgdownload.cse.ucsc.edu/goldenPath/hg38/phastCons{wildcards.n_way}/ $(dirname {output:q})"
+
+rule download_phyloP_files:
+    output: "vendor/phyloP/{n_way}/{file}"
+    shell: "rsync -avz --progress rsync://hgdownload.cse.ucsc.edu/goldenPath/hg38/phyloP{wildcards.n_way}/ $(dirname {output:q})"
+
 rule vep_annotate_merged_variants:
     input:
         vep_cache="vendor/vep/homo_sapiens",
         hg38="vendor/genomes/hg38/hg38.fa",
         dbnsfp_db="vendor/vep/dbnsfp/dbNSFP4.8a_GRCh38.gz",
         dbnsfp_tbi="vendor/vep/dbnsfp/dbNSFP4.8a_GRCh38.gz.tbi",
+        phastCons_bw="vendor/phastCons/100way/hg38.phastCons100way.bw",
+        phyloP_bw="vendor/phyloP/100way/hg38.phyloP100way.bw",
         vcf="output/filtered-variants/included.vcf"
     output: "output/vep-annotated-variants/merged.vcf"
     shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --everything \
         --plugin dbNSFP,{input.dbnsfp_db:q},SIFT_score,SIFT_converted_rankscore,SIFT_pred,SIFT4G_score,SIFT4G_converted_rankscore,SIFT4G_pred,Polyphen2_HDIV_score,Polyphen2_HDIV_rankscore,Polyphen2_HDIV_pred,Polyphen2_HVAR_score,Polyphen2_HVAR_rankscore,Polyphen2_HVAR_pred,LRT_score,LRT_converted_rankscore,LRT_pred,FATHMM_score,FATHMM_converted_rankscore,FATHMM_pred,CADD_raw,CADD_raw_rankscore,CADD_phred,MutationTaster_score,MutationTaster_converted_rankscore,MutationTaster_pred,MetaLR_score,MetaLR_rankscore,MetaLR_pred,MetaSVM_score,MetaSVM_rankscore,MetaSVM_pred,MetaRNN_score,MetaRNN_rankscore,MetaRNN_pred,REVEL_score,REVEL_rankscore,PROVEAN_score,PROVEAN_converted_rankscore,PROVEAN_pred \
+        --custom file={input.phastCons_bw:q},short_name=phastCons,format=bigwig \
+        --custom file={input.phyloP_bw:q},short_name=phyloP,format=bigwig \
         --fork 4 --offline --vcf -o {output:q}"
 
 rule split_vep_annotated_variant_files:
