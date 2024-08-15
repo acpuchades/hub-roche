@@ -144,12 +144,21 @@ rule annovar_annotate_merged_variants:
             vendor/annovar/humandb"
 
 rule download_vep_cache_files:
-    output: "vendor/vep/homo_sapiens_vep_111_GRCh38.tar.gz"
-    shell: "curl https://ftp.ensembl.org/pub/release-111/variation/indexed_vep_cache/homo_sapiens_vep_111_GRCh38.tar.gz -o {output:q}"
+    output: "vendor/vep/homo_sapiens_vep_{ver}_{genome}.tar.gz"
+    shell: "curl https://ftp.ensembl.org/pub/release-{wildcards.ver}/variation/indexed_vep_cache/homo_sapiens_vep_{wildcards.ver}_{wildcards.genome}.tar.gz -o {output:q}"
+
+rule download_vep_refseq_files:
+    output: "vendor/vep/homo_sapiens_vep_{ver}_GRCh38.dna.primary_assembly.fa.gz"
+    shell: "curl https://ftp.ensembl.org/pub/release-{wildcards.ver}/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz -o {output:q}"
+
+rule bgzip_compress_vep_refseq_files:
+    input: "vendor/vep/homo_sapiens_vep_{ver}_GRCh38.dna.primary_assembly.fa.gz"
+    output: "vendor/vep/homo_sapiens_vep_{ver}_GRCh38.dna.primary_assembly.fa.bgz"
+    shell: "gunzip -c {input:q} | bgzip > {output:q}"
 
 rule extract_vep_cache_files:
-    input: "vendor/vep/homo_sapiens_vep_111_GRCh38.tar.gz"
-    output: directory("vendor/vep/homo_sapiens")
+    input: "vendor/vep/homo_sapiens_vep_{version}.tar.gz"
+    output: directory("vendor/vep/homo_sapiens/{version}")
     shell: "tar xvf {input:q} -C vendor/vep"
 
 rule download_dbnsfp_database_files:
@@ -178,28 +187,16 @@ rule index_dbnsfp_database_processed_file_GRCh38:
     output: "vendor/vep/dbnsfp/dbNSFP{version}_GRCh38.gz.tbi"
     shell: "tabix -s 1 -b 2 -e 2 {input:q}"
 
-rule download_phastCons_files:
-    output: "vendor/phastCons/{n_way}/{file}"
-    shell: "rsync -avz --progress rsync://hgdownload.cse.ucsc.edu/goldenPath/hg38/phastCons{wildcards.n_way}/ $(dirname {output:q})"
-
-rule download_phyloP_files:
-    output: "vendor/phyloP/{n_way}/{file}"
-    shell: "rsync -avz --progress rsync://hgdownload.cse.ucsc.edu/goldenPath/hg38/phyloP{wildcards.n_way}/ $(dirname {output:q})"
-
 rule vep_annotate_merged_variants:
     input:
-        vep_cache="vendor/vep/homo_sapiens",
-        hg38="vendor/genomes/hg38/hg38.fa",
+        vep_cache="vendor/vep/homo_sapiens/112_GRCh38",
+        vep_refseq="vendor/vep/homo_sapiens_vep_112_GRCh38.dna.primary_assembly.fa.bgz",
         dbnsfp_db="vendor/vep/dbnsfp/dbNSFP4.8a_GRCh38.gz",
         dbnsfp_tbi="vendor/vep/dbnsfp/dbNSFP4.8a_GRCh38.gz.tbi",
-        phastCons_bw="vendor/phastCons/100way/hg38.phastCons100way.bw",
-        phyloP_bw="vendor/phyloP/100way/hg38.phyloP100way.bw",
         vcf="output/filtered-variants/included.vcf"
     output: "output/vep-annotated-variants/merged.vcf"
-    shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.hg38:q} --everything \
-        --plugin dbNSFP,{input.dbnsfp_db:q},SIFT_score,SIFT_converted_rankscore,SIFT_pred,SIFT4G_score,SIFT4G_converted_rankscore,SIFT4G_pred,Polyphen2_HDIV_score,Polyphen2_HDIV_rankscore,Polyphen2_HDIV_pred,Polyphen2_HVAR_score,Polyphen2_HVAR_rankscore,Polyphen2_HVAR_pred,LRT_score,LRT_converted_rankscore,LRT_pred,FATHMM_score,FATHMM_converted_rankscore,FATHMM_pred,CADD_raw,CADD_raw_rankscore,CADD_phred,MutationTaster_score,MutationTaster_converted_rankscore,MutationTaster_pred,MetaLR_score,MetaLR_rankscore,MetaLR_pred,MetaSVM_score,MetaSVM_rankscore,MetaSVM_pred,MetaRNN_score,MetaRNN_rankscore,MetaRNN_pred,REVEL_score,REVEL_rankscore,PROVEAN_score,PROVEAN_converted_rankscore,PROVEAN_pred \
-        --custom file={input.phastCons_bw:q},short_name=phastCons,format=bigwig \
-        --custom file={input.phyloP_bw:q},short_name=phyloP,format=bigwig \
+    shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.vep_refseq:q} --everything \
+        --plugin dbNSFP,{input.dbnsfp_db:q},SIFT_score,SIFT_converted_rankscore,SIFT_pred,SIFT4G_score,SIFT4G_converted_rankscore,SIFT4G_pred,Polyphen2_HDIV_score,Polyphen2_HDIV_rankscore,Polyphen2_HDIV_pred,Polyphen2_HVAR_score,Polyphen2_HVAR_rankscore,Polyphen2_HVAR_pred,LRT_score,LRT_converted_rankscore,LRT_pred,FATHMM_score,FATHMM_converted_rankscore,FATHMM_pred,CADD_raw,CADD_raw_rankscore,CADD_phred,MutationTaster_score,MutationTaster_converted_rankscore,MutationTaster_pred,MetaLR_score,MetaLR_rankscore,MetaLR_pred,MetaSVM_score,MetaSVM_rankscore,MetaSVM_pred,MetaRNN_score,MetaRNN_rankscore,MetaRNN_pred,REVEL_score,REVEL_rankscore,PROVEAN_score,PROVEAN_converted_rankscore,PROVEAN_pred,GERP++_NR,GERP++_RS,GERP++_RS_rankscore,phyloP100way_vertebrate,phyloP100way_vertebrate_rankscore,phastCons100way_vertebrate,phastCons100way_vertebrate_rankscore \
         --fork 4 --offline --vcf -o {output:q}"
 
 rule split_vep_annotated_variant_files:
@@ -239,7 +236,7 @@ rule interpolate_vcfanno_gnomad_file_mitochondrial:
 rule interpolate_vcfanno_gnomad_file_nuclear:
     input:
         config="config/gnomad.conf.in",
-        gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz"
+        gnomad_vcf="vendor/gnomad/4.1/genomes/gnomad.genomes.v4.1.sites.{chrN}.vcf.bgz"
     output: "output/gnomad-annotated-variants/vcfanno.{chrN}.conf"
     shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
 
@@ -261,8 +258,8 @@ rule gnomad_annotate_mitochondrial_variants:
 
 rule gnomad_annotate_nuclear_variants:
     input:
-        gnomad_vcf="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz",
-        gnomad_tbi="vendor/gnomad/4.0/genomes/gnomad.genomes.v4.0.sites.{chrN}.vcf.bgz.tbi",
+        gnomad_vcf="vendor/gnomad/4.1/genomes/gnomad.genomes.v4.1.sites.{chrN}.vcf.bgz",
+        gnomad_tbi="vendor/gnomad/4.1/genomes/gnomad.genomes.v4.1.sites.{chrN}.vcf.bgz.tbi",
         vcfanno_config="output/gnomad-annotated-variants/vcfanno.{chrN}.conf",
         vcf="output/vep-annotated-variants/split.{chrN}.vcf.gz"
     output: "output/gnomad-annotated-variants/annotated.{chrN}.vcf"
