@@ -14,7 +14,6 @@ rule all:
         "output/vep-annotated-variants/merged.vcf",
         "output/gnomad-annotated-variants/annotated-nsv.vcf",
         "output/clinvar-annotated-variants/annotated.vcf",
-        "output/analysis-report/coverage-stats.tsv",
         "output/analysis-report/variant-stats.txt"
 
 rule clean:
@@ -316,30 +315,6 @@ rule clinvar_annotate_variants:
         vcf="output/gnomad-annotated-variants/chr_renamed.vcf.gz"
     output: "output/clinvar-annotated-variants/annotated.vcf"
     shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
-
-rule extract_variant_depths:
-    input: "output/filtered-variants/included.vcf"
-    output: "output/analysis-report/depth.txt"
-    shell: "bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t[%DP\t]\n' {input:q} > {output:q}"
-
-rule calculate_variant_mean_depth:
-    input: "output/analysis-report/depth.txt"
-    output: "output/analysis-report/coverage-stats.tsv"
-    shell: "gawk 'BEGIN {{ \
-        OFS = \"\t\"; \
-        print \"CHROM\",\"POS\",\"REF\",\"ALT\", \"COUNT\",\"COVERAGE_20X\",\"AVG_DP\"; \
-    }} {{ \
-        count = 0; \
-        dpsum = 0; \
-        coverage20 = 0; \
-        for(i=5; i<=NF; i++) {{ \
-            if ($i == \".\") continue; \
-            if ($i >= 20) coverage20++; \
-            dpsum += $i; \
-            count++; \
-        }} \
-        print $1, $2, $3, $4, count, coverage20, dpsum/count \
-    }}' {input:q} > {output:q}"
 
 rule export_variant_stats:
     input: "output/clinvar-annotated-variants/annotated.vcf"
