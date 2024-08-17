@@ -300,7 +300,7 @@ rule generate_chr_conversion_file:
 
 rule rename_chrs_in_gnomad_annotate_variants:
     input:
-        vcf="output/gnomad-annotated-variants/annotated-nsv.vcf",
+        vcf="output/gnomad-annotated-variants/annotated.vcf",
         chr_conv="output/gnomad-annotated-variants/chr-conv.txt"
     output: "output/gnomad-annotated-variants/chr_renamed.vcf.gz"
     shell: "bcftools annotate --rename-chrs {input.chr_conv:q} {input.vcf:q} -Oz -o {output:q}"
