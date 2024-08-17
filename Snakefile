@@ -19,7 +19,10 @@ rule all:
         "output/analysis-report/variants-coverage.png",
         "output/analysis-report/variants-quality.png",
         "output/analysis-report/variants-reported.png",
-        "output/analysis-report/gnomad-af.png"
+        "output/analysis-report/gnomad-af.png",
+        "output/common-variants/plink.eigenvec",
+        "output/common-variants/plink.eigenval",
+        "output/common-variants/variants-pca.html"
 
 rule clean:
     shell: "rm -rf output"
@@ -358,7 +361,12 @@ rule convert_common_variants_to_plink:
 rule extract_principal_components_from_variants:
     input: "output/common-variants/plink.bed"
     output: multiext("output/common-variants/plink", ".eigenvec", ".eigenval")
-    shell: "plink --bfile output/common-variants/plink --pca --out output/common-variants/plink"
+    shell: "plink --bfile output/common-variants/plink --pca header tabs --out output/common-variants/plink"
+
+rule generate_variants_pca_plot:
+    input: "output/common-variants/plink.eigenvec"
+    output: "output/common-variants/variants-pca.html"
+    shell: "RSTUDIO_PANDOC='$(which pandoc)' Rscript src/pca-plots.r"
 
 rule generate_control_phenotypes_file:
     input:
