@@ -14,7 +14,12 @@ rule all:
         "output/vep-annotated-variants/merged.vcf",
         "output/gnomad-annotated-variants/annotated-nsv.vcf",
         "output/clinvar-annotated-variants/annotated.vcf",
-        "output/analysis-report/variant-stats.txt"
+        "output/analysis-report/pipeline-summary.png",
+        "output/analysis-report/variants-coverage.png",
+        "output/analysis-report/variants-coverage.png",
+        "output/analysis-report/variants-quality.png",
+        "output/analysis-report/variants-reported.png",
+        "output/analysis-report/gnomad-af.png"
 
 rule clean:
     shell: "rm -rf output"
@@ -318,14 +323,22 @@ rule clinvar_annotate_variants:
 
 rule export_variant_stats:
     input: "output/clinvar-annotated-variants/annotated.vcf"
-    output: "output/analysis-report/variant-stats.txt"
+    output: "output/analysis-report/variant-stats.tsv"
     shell: "bcftools +split-vep -H -d \
-        -f '%CHROM %POS %REF %ALT %CSQ\n' -A space \
+        -f '%CHROM\t%POS\t%REF\t%ALT\t%QUAL\t%DP\t%INFO/gno_id\t%INFO/dbsnp_id\t%INFO/clinvar_id\t%INFO/gno_af_all\t%CSQ\n' -A tab \
         {input:q} | sort | uniq > {output:q}"
 
 rule export_pipeline_graph:
-    output: "output/analysis-report/pipeline.pdf"
-    shell: "snakemake --forceall --rulegraph | dot -Tpdf > {output:q}"
+    output: "output/analysis-report/pipeline-summary.png"
+    shell: "snakemake --rulegraph --forceall | dot -Tpng > {output:q}"
+
+rule generate_variant_stats_plots:
+    input: "output/analysis-report/variant-stats.tsv"
+    output: "output/analysis-report/variants-coverage.png",
+        "output/analysis-report/variants-quality.png",
+        "output/analysis-report/variants-reported.png",
+        "output/analysis-report/gnomad-af.png"
+    shell: "Rscript src/summary-stats.r"
 
 rule filter_common_variants_by_maf:
     input: "output/clinvar-annotated-variants/annotated.vcf.gz"
