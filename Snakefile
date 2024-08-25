@@ -1,3 +1,5 @@
+SPLICEAI_GENOME_SCORES_DIR = "vendor/spliceai/genome_scores_v1.3-194103939/genome_scores_v1.3-ds.20a701bc58ab45b59de2576db79ac8d0"
+
 samples, = glob_wildcards("data/laboratorio/vcf/{sample}.vcf.gz")
 
 auto_chrN = list(map(str, range(1, 23)))
@@ -194,16 +196,20 @@ rule index_dbnsfp_database_processed_file_GRCh38:
     output: "vendor/vep/dbnsfp/dbNSFP{version}_GRCh38.gz.tbi"
     shell: "tabix -s 1 -b 2 -e 2 {input:q}"
 
+
 rule vep_annotate_merged_variants:
     input:
         vep_cache="vendor/vep/homo_sapiens/112_GRCh38",
         vep_refseq="vendor/vep/homo_sapiens_vep_112_GRCh38.dna.primary_assembly.fa.bgz",
         dbnsfp_db="vendor/vep/dbnsfp/dbNSFP4.8a_GRCh38.gz",
         dbnsfp_tbi="vendor/vep/dbnsfp/dbNSFP4.8a_GRCh38.gz.tbi",
+        spliceai_snv=f"{SPLICEAI_GENOME_SCORES_DIR}/spliceai_scores.raw.snv.hg38.vcf.gz",
+        spliceai_indel=f"{SPLICEAI_GENOME_SCORES_DIR}/spliceai_scores.raw.indel.hg38.vcf.gz",
         vcf="output/filtered-variants/included.vcf"
     output: "output/vep-annotated-variants/merged.vcf"
     shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.vep_refseq:q} --everything \
         --plugin dbNSFP,{input.dbnsfp_db:q},SIFT_score,SIFT_converted_rankscore,SIFT_pred,SIFT4G_score,SIFT4G_converted_rankscore,SIFT4G_pred,Polyphen2_HDIV_score,Polyphen2_HDIV_rankscore,Polyphen2_HDIV_pred,Polyphen2_HVAR_score,Polyphen2_HVAR_rankscore,Polyphen2_HVAR_pred,LRT_score,LRT_converted_rankscore,LRT_pred,FATHMM_score,FATHMM_converted_rankscore,FATHMM_pred,CADD_raw,CADD_raw_rankscore,CADD_phred,MutationTaster_score,MutationTaster_converted_rankscore,MutationTaster_pred,MetaLR_score,MetaLR_rankscore,MetaLR_pred,MetaSVM_score,MetaSVM_rankscore,MetaSVM_pred,MetaRNN_score,MetaRNN_rankscore,MetaRNN_pred,REVEL_score,REVEL_rankscore,PROVEAN_score,PROVEAN_converted_rankscore,PROVEAN_pred,GERP++_NR,GERP++_RS,GERP++_RS_rankscore,phyloP100way_vertebrate,phyloP100way_vertebrate_rankscore,phastCons100way_vertebrate,phastCons100way_vertebrate_rankscore \
+        --plugin SpliceAI,snv={input.spliceai_snv:q},indel={input.spliceai_indel:q} \
         --fork 4 --offline --vcf -o {output:q}"
 
 rule split_vep_annotated_variant_files:

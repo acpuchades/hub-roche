@@ -1,8 +1,8 @@
 [[annotation]]
 file="${GNOMAD_VCF_FILE}"
-fields = ["ID", "FILTER", "AC", "AN", "AC_afr", "AN_afr", "AC_ami", "AN_ami", "AC_amr", "AN_amr", "AC_asj", "AN_asj", "AC_eas", "AN_eas", "AC_fin", "AN_fin", "AC_mid", "AN_mid", "AC_nfe", "AN_nfe", "AC_remaining", "AN_remaining", "AC_sas", "AN_sas", "AC_joint", "AN_joint"]
-names = ["gno_id", "gno_filter", "gno_ac_all", "gno_an_all", "gno_ac_afr", "gno_an_afr", "gno_ac_ami", "gno_an_ami", "gno_ac_amr", "gno_an_amr", "gno_ac_asj", "gno_an_asj", "gno_ac_eas", "gno_an_eas", "gno_ac_fin", "gno_an_fin", "gno_ac_nfe", "gno_an_nfe", "gno_ac_mid", "gno_an_mid", "gno_ac_remaining", "gno_an_remaining", "gno_ac_sas", "gno_an_sas", "gno_ac_joint", "gno_an_joint"]
-ops=["self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self"]
+fields = ["ID", "FILTER", "AC", "AN", "AC_afr", "AN_afr", "AC_ami", "AN_ami", "AC_amr", "AN_amr", "AC_asj", "AN_asj", "AC_eas", "AN_eas", "AC_fin", "AN_fin", "AC_mid", "AN_mid", "AC_nfe", "AN_nfe", "AC_remaining", "AN_remaining", "AC_sas", "AN_sas"]
+names = ["gno_id", "gno_filter", "gno_ac_all", "gno_an_all", "gno_ac_afr", "gno_an_afr", "gno_ac_ami", "gno_an_ami", "gno_ac_amr", "gno_an_amr", "gno_ac_asj", "gno_an_asj", "gno_ac_eas", "gno_an_eas", "gno_ac_fin", "gno_an_fin", "gno_ac_nfe", "gno_an_nfe", "gno_ac_mid", "gno_an_mid", "gno_ac_remaining", "gno_an_remaining", "gno_ac_sas", "gno_an_sas"]
+ops=["self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self", "self"]
 
 # calculate allele frequencies for all populations.
 [[postannotation]]
@@ -72,13 +72,7 @@ op="div2"
 type="Float"
 
 [[postannotation]]
-fields=["gno_ac_joint", "gno_an_joint"]
-name="gno_af_joint"
-op="div2"
-type="Float"
-
-[[postannotation]]
-fields=['gno_af_afr', 'gno_af_ami', 'gno_af_amr', 'gno_af_asj', 'gno_af_eas', 'gno_af_fin', 'gno_af_nfe', 'gno_af_mid', 'gno_af_remaining', 'gno_af_sas', 'gno_af_joint']
+fields=['gno_af_afr', 'gno_af_ami', 'gno_af_amr', 'gno_af_asj', 'gno_af_eas', 'gno_af_fin', 'gno_af_nfe', 'gno_af_mid', 'gno_af_remaining', 'gno_af_sas']
 op="max"
 name="max_aaf_all"
 type="Float"
