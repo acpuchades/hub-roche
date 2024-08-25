@@ -6,6 +6,7 @@ library(forcats)
 library(ggplot2)
 library(ggvenn)
 library(scales)
+library(patchwork)
 
 as_chromosome <- function(x) {
   factor(x, levels = c(1:22, "X", "Y", "MT"))
@@ -23,11 +24,20 @@ variant.stats <- read_tsv("output/analysis-report/variant-stats.tsv") |>
 variants_per_locus <- variant.stats |>
   slice_sample(n = 1, by = c(locus, "REF", "ALT"))
 
-ggplot(variants_per_locus, aes(gno_af_all)) +
+af_plot <- ggplot(variants_per_locus, aes(gno_af_all)) +
   geom_histogram() +
-  scale_x_continuous(labels = label_percent()) +
-  labs(title = "Variant frequency according to gnomAD v4.1")
-ggsave("output/analysis-report/gnomad-af.png")
+  scale_x_continuous(labels = label_percent())
+
+af_plot_log10 <- ggplot(variants_per_locus, aes(gno_af_all)) +
+  geom_histogram() +
+  scale_x_continuous(name = "log(gno_af_all)", labels = label_percent(), trans = "log10")
+
+(af_plot | af_plot_log10) + plot_annotation(
+  title = "Allele frequency of variants according to gnomAD genomes",
+  theme = theme(plot.title = element_text(hjust = 0.5)),
+)
+
+ggsave("output/analysis-report/gnomad-af.png", width = 10, height = 5)
 
 variants_per_locus |>
   transmute(
