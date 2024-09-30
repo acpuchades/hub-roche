@@ -1,6 +1,10 @@
+import re
+
 SPLICEAI_GENOME_SCORES_DIR = "vendor/spliceai/genome_scores_v1.3-194103939/genome_scores_v1.3-ds.20a701bc58ab45b59de2576db79ac8d0"
 
 samples, = glob_wildcards("data/laboratorio/vcf/{sample}.vcf.gz")
+fastq_reads, = glob_wildcards("data/laboratorio/fastq/{read}.fastq.gz")
+fastq_names = list(set(re.sub('_R[12]_001', '', x) for x in fastq_reads))
 
 auto_chrN = list(map(str, range(1, 23)))
 nuclear_chrN = auto_chrN + ['X', 'Y']
@@ -24,7 +28,10 @@ rule all:
         "output/analysis-report/gnomad-af.png",
         "output/common-variants/plink.eigenvec",
         "output/common-variants/plink.eigenval",
-        "output/common-variants/variants-pca.html"
+        "output/common-variants/variants-pca.html",
+        expand("output/fastq-qc-plots/{read}_fastqc.html", read=fastq_reads),
+        expand("output/trimmed-fastq-reads/{read}_{rn}{up}.fastq.gz", read=fastq_names, rn=[1,2], up=["U", "P"]),
+        expand("output/trimmed-fastq-qc-plots/{read}_{rn}P_fastqc.html", read=fastq_names, rn=[1,2])
 
 rule clean:
     shell: "rm -rf output"
@@ -373,6 +380,29 @@ rule generate_variants_pca_plot:
     input: "output/common-variants/plink.eigenvec"
     output: "output/common-variants/variants-pca.html"
     shell: "RSTUDIO_PANDOC='$(which pandoc)' Rscript src/pca-plots.r"
+
+rule generate_quality_plots_from_fastq_files:
+    input: "data/laboratorio/fastq/{path}.fastq.gz"
+    output: "output/fastq-qc-plots/{path}_fastqc.html"
+    shell: "fastqc {input:q} -o $(dirname {output:q})"
+
+rule trim_fastq_read_files:
+    input:
+        fastq_r1="data/laboratorio/fastq/{read}_R1_001.fastq.gz",
+        fastq_r2="data/laboratorio/fastq/{read}_R2_001.fastq.gz"
+    output:
+        trim_1p="output/trimmed-fastq-reads/{read}_1P.fastq.gz",
+        trim_1u="output/trimmed-fastq-reads/{read}_1U.fastq.gz",
+        trim_2p="output/trimmed-fastq-reads/{read}_2P.fastq.gz",
+        trim_2u="output/trimmed-fastq-reads/{read}_2U.fastq.gz"
+    shell: "trimmomatic PE -phred33 {input.fastq_r1:q} {input.fastq_r2:q} \
+                -baseout 'output/trimmed-fastq-reads/{wildcards.read}.fastq.gz' \
+                ILLUMINACLIP:config/TruSeq3-PE-2.fa:2:30:10 SLIDINGWINDOW:5:20 MINLEN:50"
+
+rule generate_quality_plots_from_trimmed_fastq_files:
+    input: "output/trimmed-fastq-reads/{prefix}P.fastq.gz"
+    output: "output/trimmed-fastq-qc-plots/{prefix}P_fastqc.html"
+    shell: "fastqc {input:q} -o $(dirname {output:q})"
 
 rule generate_control_phenotypes_file:
     input:
