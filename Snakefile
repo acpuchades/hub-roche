@@ -98,34 +98,14 @@ rule extract_variant_file_sample_names:
     output: "output/renamed-variants/samples.original.txt"
     shell: "bcftools query --list-samples {input:q} > {output:q}"
 
-rule normalize_sample_names:
-    input:
-        sample_names="output/renamed-variants/samples.original.txt"
-    output: "output/renamed-variants/samples.normalized.txt"
-    run:
-        from helpers import normalize_sample_id
-        with open(input.sample_names, 'r') as f:
-            with open(output[0], 'w') as out:
-                for line in f.readlines():
-                    name = line.rstrip('\n')
-                    name = normalize_sample_id(name)
-                    print(name, file=out)
-
-rule rename_variant_file_samples:
-    input:
-        vcf="output/merged-variants/merged.vcf.gz",
-        normalized_names="output/renamed-variants/samples.normalized.txt"
-    output: "output/renamed-variants/renamed-unsorted.vcf.gz"
-    shell: "bcftools reheader -s {input.normalized_names:q} -o {output:q} {input.vcf:q}"
-
-rule sort_normalized_sample_names:
-    input: "output/renamed-variants/samples.normalized.txt"
+rule sort_vcf_sample_names:
+    input: "output/renamed-variants/samples.original.txt"
     output: "output/renamed-variants/samples.sorted.txt"
     shell: "sort -k1,1 {input:q} > {output:q}"
 
 rule sort_renamed_variant_file_samples:
     input:
-        vcf="output/renamed-variants/renamed-unsorted.vcf.gz",
+        vcf="output/merged-variants/merged.vcf.gz",
         sorted_names="output/renamed-variants/samples.sorted.txt"
     output: "output/renamed-variants/renamed.vcf"
     shell: "bcftools view -S {input.sorted_names} -Ov -o {output:q} {input.vcf:q}"
