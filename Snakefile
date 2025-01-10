@@ -384,38 +384,6 @@ rule generate_quality_plots_from_trimmed_fastq_files:
     output: "output/trimmed-fastq-qc-plots/{prefix}P_fastqc.html"
     shell: "fastqc {input:q} -o $(dirname {output:q})"
 
-rule generate_control_phenotypes_file:
-    input:
-        vcf="output/renamed-variants/renamed.vcf",
-        ufela_db="data/ufela/formulario_2023-11-15.sqlite",
-        ufela_samples="data/biobanco/Muestras ELA.xlsx"
-    output: "output/phenotype-files/controls.pheno"
-    shell: "src/make-pheno-ufela.py --vcf {input.vcf:q} --database {input.ufela_db} --samples {input.ufela_samples:q} --output controls > {output:q}"
-
-rule generate_als_phenotypes_file:
-    input:
-        vcf="output/renamed-variants/renamed.vcf",
-        ufela_db="data/ufela/formulario_2023-11-15.sqlite",
-        ufela_samples="data/biobanco/Muestras ELA.xlsx"
-    output: "output/phenotype-files/als.pheno"
-    shell: "{input.ufela_cli} --vcf {input.vcf:q} --database {input.ufela_db:q} --samples {input.ufela_samples:q} --output patients > {output:q}"
-
-rule generate_ms_phenotypes_file:
-    input:
-        ufem_cli="src/make-pheno-ufem.py",
-        ufem_samples="data/ufem/samples-20240201.xlsx",
-        ufem_ids="data/ufem/FClinica.xlsx",
-        ufem_db="data/ufem"
-    output: "output/phenotype-files/ms.pheno"
-    shell: "{input.ufem_cli} --samples {input.ufem_samples:q} --nhc {input.ufem_ids:q} --database {input.ufem_db:q} > {output:q}"
-
-rule generate_assoc_phenotype_file:
-    input:
-        cases="output/phenotype-files/{pheno}.pheno",
-        controls="output/phenotype-files/controls.pheno"
-    output: "output/phenotype-files/{pheno}-assoc.pheno"
-    shell: "\
-        printf FID\\\\tIID\\\\t{wildcards.pheno}\\\\n | tr '[:lower:]' '[:upper:]' > {output:q} && \
-        tail -n +2 {input.cases:q} | gawk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 2}}' >> {output:q} && \
-        tail -n +2 {input.controls:q} | gawk 'BEGIN {{OFS=\"\\t\"}} {{print $1, $2, 1}}' >> {output:q} \
-    "
+rule generate_phenotype_file:
+    output: "output/phenotype-info/samples.pheno"
+    shell: "Rscript src/make-pheno.r > {output:q}"
