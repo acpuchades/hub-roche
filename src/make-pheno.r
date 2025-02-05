@@ -76,52 +76,12 @@ ms_samples_info <- ms_sample_ids |>
     )
   )
 
-als_samples_info <- als_sample_ids |>
-  left_join(
-    als_samples_bb |> transmute(
-      normalized_sample_id = normalize_sample_id(codigo_caso_noraybanks),
-      nhc_noraybanks = nhc
-    ),
-    by = "normalized_sample_id", multiple = "first"
-  ) |>
-  left_join(
-    als_samples_bb |> transmute(
-      normalized_sample_id = normalize_sample_id(codigo_donacion_recepcion),
-      nhc_donacion = nhc
-    ),
-    by = "normalized_sample_id", multiple = "first"
-  ) |>
-  left_join(
-    als_samples_ufela |> transmute(
-      normalized_sample_id = normalize_sample_id(caso_noraybanks),
-      nhc_ufela_noraybanks = sap, diagnostico_noraybanks = dtco
-    ),
-    by = "normalized_sample_id", multiple = "first"
-  ) |>
-  left_join(
-    als_samples_ufela |> transmute(
-      normalized_sample_id = normalize_sample_id(codigo_donacion),
-      nhc_ufela_donacion = sap, diagnostico_donacion = dtco
-    ),
-    by = "normalized_sample_id", multiple = "first"
-  ) |>
-  mutate(
-    nhc = coalesce(nhc_noraybanks, nhc_donacion, nhc_ufela_noraybanks, nhc_ufela_donacion)
-  ) |>
-  left_join(
-    ufela_pacientes |> transmute(nhc, diagnostico_ufela_db = "ELA"),
-    by = "nhc"
-  ) |>
-  mutate(
-    diagnostico = coalesce(diagnostico_noraybanks, diagnostico_donacion, diagnostico_ufela_db),
-    grupo = if_else(
-      str_to_lower(diagnostico) |> str_detect("control"),
-      "Control", "ELA"
-    ),
-  )
+als_samples_info <- bind_rows(
+  read_excel("data/ufela/controles-20240112.xlsx", col_names = "sample_id", sheet = "ELA") |> mutate(grupo = "ELA"),
+  read_excel("data/ufela/controles-20240112.xlsx", col_names = "sample_id", sheet = "Controles") |> mutate(grupo = "Control"),
+)
 
 als_samples_info |>
-  select(sample_id, grupo) |>
   bind_rows(
     ms_samples_info |> select(sample_id, grupo)
   ) |>
@@ -138,4 +98,5 @@ als_samples_info |>
     ALS = if_else(grupo == "ELA", 1, 0, missing = -9),
     MS = if_else(grupo == "EM", 1, 0, missing = -9)
   ) |>
+  arrange(GROUP) |>
   write_tsv(stdout())
