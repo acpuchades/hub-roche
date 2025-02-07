@@ -4,6 +4,7 @@ library(dplyr)
 library(readxl)
 library(stringr)
 library(tidyr)
+library(lubridate)
 library(writexl)
 
 library(DBI)
@@ -11,14 +12,7 @@ library(RSQLite)
 
 source("src/utils.r")
 
-normalize_sample_id <- function(x) {
-  x |>
-    str_replace("-?ADN[0-9]", "") |>
-    str_replace("-ambBED", "") |>
-    str_replace_all("-", "")
-}
-
-sample_ids <- read_lines("output/renamed-variants/samples.original.txt") |>
+sample_ids <- read_lines("output/renamed-variants/samples.normalized.txt") |>
   as_tibble_col("sample_id")
 
 ms_sample_ids <- sample_ids |>
@@ -26,20 +20,7 @@ ms_sample_ids <- sample_ids |>
 
 als_sample_ids <- sample_ids |>
   filter(str_starts(sample_id, "ELA")) |>
-  mutate(normalized_sample_id = normalize_sample_id(sample_id))
-
-als_samples_bb <- read_excel("data/biobanco/Muestras ELA.xlsx", skip = 1) |>
-  rename_with(normalize_names) |>
-  filter(tipo_muestra %in% c("13-ADN", "11-Buffy coat"))
-
-als_samples_ufela <- read_excel("data/ufela/biobanco-20240201.xlsx") |>
-  rename(codigo_donacion = "...2") |>
-  rename_with(normalize_names)
-
-ufela_db <- dbConnect(RSQLite::SQLite(), "data/ufela/formulario_2023-11-15.sqlite")
-ufela_pacientes <- dbGetQuery(ufela_db, "SELECT * FROM pacientes") |>
-  rename_with(normalize_names)
-dbDisconnect(ufela_db)
+  mutate(sample_id = normalize_sample_id(sample_id))
 
 ms_samples_bb <- read_excel("data/biobanco/Muestras EM.xlsx", skip = 1) |>
   rename_with(normalize_names) |>
@@ -76,27 +57,80 @@ ms_samples_info <- ms_sample_ids |>
     )
   )
 
-als_samples_info <- bind_rows(
-  read_excel("data/ufela/controles-20240112.xlsx", col_names = "sample_id", sheet = "ELA") |> mutate(grupo = "ELA"),
-  read_excel("data/ufela/controles-20240112.xlsx", col_names = "sample_id", sheet = "Controles") |> mutate(grupo = "Control"),
+als_biobank_samples <- read_excel("data/biobanco/Muestras ELA.xlsx", skip = 1) |>
+  rename_with(normalize_names) |>
+  transmute(
+    suppressWarnings(across(nhc, as.integer)),
+    across(c(codigo_caso_noraybanks, codigo_donacion_recepcion), normalize_biobank_id),
+    codigo_donacion_recepcion = biobank_donor_id(codigo_donacion_recepcion),
+  ) |>
+  distinct()
+
+als_dropbox_samples <- suppressMessages(read_excel("data/ufela/biobanco-20240201.xlsx")) |>
+  rename(codigo_donacion_recepcion = `...2`) |>
+  rename_with(normalize_names) |>
+  rename(codigo_caso_noraybanks = caso_noraybanks) |>
+  mutate(nhc = suppressWarnings(as.integer(sap))) |>
+  select(nhc, codigo_caso_noraybanks, codigo_donacion_recepcion) |>
+  distinct()
+
+als_ufela_db <- dbConnect(RSQLite::SQLite(), "data/ufela/formulario_2023-11-15.sqlite")
+als_patients <- dbGetQuery(als_ufela_db, "SELECT * FROM pacientes") |>
+  rename_with(normalize_names) |>
+  mutate(nhc = suppressWarnings(as.integer(nhc)))
+dbDisconnect(als_ufela_db)
+
+als_ufela_samples <- als_biobank_samples |>
+  bind_rows(als_dropbox_samples) |>
+  distinct()
+
+als_nhc_ccn <- als_ufela_samples |>
+  select(nhc, codigo_caso_noraybanks) |>
+  drop_na() |>
+  distinct()
+
+als_nhc_cdr <- als_ufela_samples |>
+  select(nhc, codigo_donacion_recepcion) |>
+  drop_na() |>
+  distinct()
+
+als_samples_nhc <- als_sample_ids |>
+  left_join(
+    bind_rows(
+      als_nhc_ccn |> transmute(sample_id = codigo_caso_noraybanks, nhc, biobank_tag = "ccn"),
+      als_nhc_cdr |> transmute(sample_id = codigo_donacion_recepcion, nhc, biobank_tag = "cdr")
+    ),
+    by = "sample_id"
+  )
+
+als_groups <- bind_rows(
+  read_excel("data/ufela/grupos-20240112.xlsx", col_names = "sample_id", sheet = "ELA") |> mutate(grupo = "ELA"),
+  read_excel("data/ufela/grupos-20240112.xlsx", col_names = "sample_id", sheet = "Controles") |> mutate(grupo = "Control"),
 )
 
-als_samples_info |>
-  bind_rows(
-    ms_samples_info |> select(sample_id, grupo)
+als_groups_nhc <- als_groups |>
+  left_join(
+    als_ufela_samples |> select(sample_id = codigo_donacion_recepcion, nhc),
+    by = "sample_id", na_matches = "never"
   ) |>
+  distinct()
+
+als_samples_info <- als_samples_nhc |>
+  left_join(als_groups_nhc |> select(nhc, grupo), by = "nhc", na_matches = "never") |>
+  left_join(als_patients |> transmute(nhc, grupo = "ELA"), by = "nhc") |>
+  mutate(grupo = coalesce(grupo.x, grupo.y), .keep = "unused")
+
+bind_rows(
+  als_samples_info |> select(sample_id, grupo),
+  ms_samples_info |> select(sample_id, grupo)
+) |>
+  arrange(sample_id) |>
   transmute(
-    FID = sample_id,
+    `#FID` = sample_id,
     IID = sample_id,
-    GROUP = case_match(
-      grupo,
-      "Control" ~ 0,
-      "ELA" ~ 1,
-      "EM" ~ 2,
-      .default = -9
-    ),
-    ALS = if_else(grupo == "ELA", 1, 0, missing = -9),
-    MS = if_else(grupo == "EM", 1, 0, missing = -9)
+    FATID = 0,
+    MATID = 0,
+    ALS = if_else(grupo == "ELA", 2, 1, missing = -9),
+    MS = if_else(grupo == "EM", 2, 1, missing = -9)
   ) |>
-  arrange(GROUP) |>
   write_tsv(stdout())

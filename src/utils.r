@@ -10,3 +10,22 @@ normalize_names <- function(x) {
     str_replace_all("_+", "_") |>
     str_replace_all("^_|_$", "")
 }
+
+normalize_sample_id <- function(x) {
+  x |>
+    str_replace("-?ADN[0-9]", "") |>
+    str_replace("-ambBED", "") |>
+    str_replace_all("-", "")
+}
+
+biobank_donor_id <- function(x) {
+  x |>
+    str_replace_all("\\([0-9]+\\)$", "") |>
+    str_trim()
+}
+
+normalize_biobank_id <- function(x) {
+  x |>
+    str_replace_all(" ", "") |>
+    str_replace_all("-", "")
+}
