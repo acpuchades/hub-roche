@@ -19,8 +19,7 @@ ms_sample_ids <- sample_ids |>
   filter(str_starts(sample_id, "EM"))
 
 als_sample_ids <- sample_ids |>
-  filter(str_starts(sample_id, "ELA")) |>
-  mutate(sample_id = normalize_sample_id(sample_id))
+  filter(str_starts(sample_id, "ELA"))
 
 ms_samples_bb <- read_excel("data/biobanco/Muestras EM.xlsx", skip = 1) |>
   rename_with(normalize_names) |>
@@ -30,6 +29,10 @@ ms_samples_isa <- read_excel("data/ufem/Muestras-20240201.xlsx") |>
   rename(sample_id = id, nhc = "...3") |>
   rename_with(normalize_names) |>
   drop_na(sample_id)
+
+ms_info_fclinica <- read_excel("data/ufem/FClinica.xlsx") |>
+  rename_with(normalize_names) |>
+  mutate(sexo = fc_sexo |> case_match(0 ~ "M", 1 ~ "F"))
 
 ms_samples_info <- ms_sample_ids |>
   left_join(
@@ -49,13 +52,16 @@ ms_samples_info <- ms_sample_ids |>
     by = "sample_id"
   ) |>
   mutate(
-    nhc = coalesce(nhc_biobanco, nhc_isa),
+    nhc = as.integer(coalesce(nhc_biobanco, nhc_isa)),
     diagnostico = coalesce(diagnostico_bb, diagnostico_isa),
     grupo = case_when(
       str_to_lower(diagnostico) |> str_detect("control") ~ "Control",
       !is.na(nhc) ~ "EM"
     )
-  )
+  ) |>
+  left_join(ms_info_fclinica |> select(nhc = "fc_nhc", sexo), by = "nhc", na_matches = "never") |>
+  left_join(ms_info_fclinica |> select(nhc = "fc_sap", sexo), by = "nhc", na_matches = "never") |>
+  mutate(sexo = coalesce(sexo.x, sexo.y), .keep = "unused")
 
 als_biobank_samples <- read_excel("data/biobanco/Muestras ELA.xlsx", skip = 1) |>
   rename_with(normalize_names) |>
@@ -100,7 +106,7 @@ als_samples_nhc <- als_sample_ids |>
       als_nhc_ccn |> transmute(sample_id = codigo_caso_noraybanks, nhc, biobank_tag = "ccn"),
       als_nhc_cdr |> transmute(sample_id = codigo_donacion_recepcion, nhc, biobank_tag = "cdr")
     ),
-    by = "sample_id"
+    by = "sample_id", na_matches = "never"
   )
 
 als_groups <- bind_rows(
@@ -117,20 +123,27 @@ als_groups_nhc <- als_groups |>
 
 als_samples_info <- als_samples_nhc |>
   left_join(als_groups_nhc |> select(nhc, grupo), by = "nhc", na_matches = "never") |>
-  left_join(als_patients |> transmute(nhc, grupo = "ELA"), by = "nhc") |>
-  mutate(grupo = coalesce(grupo.x, grupo.y), .keep = "unused")
+  left_join(als_patients |> transmute(nhc, sexo, grupo = "ELA"), by = "nhc") |>
+  mutate(
+    grupo = coalesce(grupo.x, grupo.y), .keep = "unused",
+    sexo = case_match(sexo, "Hombre" ~ "M", "Mujer" ~ "F")
+  ) |>
+  rows_update(tibble(sample_id = "ELA191", nhc = 18743408, sexo = "M", grupo = "ELA"), by = "sample_id") |>
+  rows_update(tibble(sample_id = "ELA215", nhc = 17070408, sexo = NA, grupo = NA), by = "sample_id") |>
+  rows_update(tibble(sample_id = "ELA218", nhc = NA, sexo = NA, grupo = NA), by = "sample_id") |>
+  rows_update(tibble(sample_id = "ELA231", nhc = NA, sexo = NA, grupo = NA), by = "sample_id") |>
+  rows_update(tibble(sample_id = "ELA233", nhc = 16844241, sexo = "F", grupo = "ELA"), by = "sample_id") |>
+  rows_update(tibble(sample_id = "ELA236", nhc = 13783143, sexo = "F", grupo = "ELA"), by = "sample_id") |>
+  slice_sample(n = 1, by = sample_id)
 
 bind_rows(
-  als_samples_info |> select(sample_id, grupo),
-  ms_samples_info |> select(sample_id, grupo)
+  als_samples_info |> select(sample_id, grupo, sexo),
+  ms_samples_info |> select(sample_id, grupo, sexo)
 ) |>
   arrange(sample_id) |>
   transmute(
-    `#FID` = sample_id,
-    IID = sample_id,
-    FATID = 0,
-    MATID = 0,
-    ALS = if_else(grupo == "ELA", 2, 1, missing = -9),
-    MS = if_else(grupo == "EM", 2, 1, missing = -9)
+    SAMPLE = sample_id,
+    SEX = sexo,
+    PHENO = grupo |> case_match("Control" ~ "CONTROL", "EM" ~ "MS", "ELA" ~ "ALS")
   ) |>
   write_tsv(stdout())
