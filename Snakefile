@@ -10,16 +10,17 @@ auto_chrN = list(map(str, range(1, 23)))
 nuclear_chrN = auto_chrN + ['X', 'Y']
 all_chrN = nuclear_chrN + ['M']
 
+rvtests = ["Skat", "VariableThresholdPrice", "CMC", "Kbac"]
+
 rule all:
     input:
-        "output/filtered-annotated-variants/maf_gt_0.05.bcf",
-        "output/filtered-annotated-variants/maf_lt_0.05.bcf",
-        "output/filtered-annotated-variants/maf_lt_0.01.bcf",
         "output/variant-analysis/controls.hardy",
-        "output/variant-analysis/common.ALS.glm.logistic.hybrid.volcano.png",
-        "output/variant-analysis/common.MS.glm.logistic.hybrid.volcano.png",
-        "output/variant-analysis/common.ALS.glm.logistic.hybrid.manhattan.png",
-        "output/variant-analysis/common.MS.glm.logistic.hybrid.manhattan.png"
+        "output/variant-analysis/cva.ALS.glm.logistic.hybrid.volcano.png",
+        "output/variant-analysis/cva.ALS.glm.logistic.hybrid.manhattan.png",
+        "output/variant-analysis/cva.MS.glm.logistic.hybrid.volcano.png",
+        "output/variant-analysis/cva.MS.glm.logistic.hybrid.manhattan.png",
+        expand("output/variant-analysis/rva.ALS.{t}.assoc", t=rvtests),
+        expand("output/variant-analysis/rva.MS.{t}.assoc", t=rvtests)
 
 rule clean:
     shell: "rm -rf output"
@@ -28,6 +29,19 @@ rule compress_output_file_bgzip:
     input: "output/{path}"
     output: "output/{path}.gz"
     shell: "bgzip --keep {input:q}"
+
+rule convert_bcf_file_to_vcf:
+    input: "output/{path}.bcf"
+    output: "output/{path}.vcf"
+    shell: "bcftools view {input:q} -Ov -o {output:q}"
+
+rule convert_bcf_file_to_compressed_vcf:
+    input: "output/{path}.bcf"
+    output: "output/{path}.vcf.gz"
+    shell: "bcftools view {input:q} -Oz -o {output:q}"
+
+ruleorder:
+    convert_bcf_file_to_compressed_vcf > compress_output_file_bgzip
 
 rule index_vcf_file_tbi:
     input: "output/{path}.{ext}"
@@ -314,12 +328,12 @@ rule generate_sample_information_file:
 rule extract_control_samples:
     input: "output/phenotype-info/samples.tsv"
     output: "output/phenotype-info/control.samples"
-    shell: "awk '$3 == \"CONTROL\" {{ print $1 }}' {input:q} | tail -n +2 > {output:q}"
+    shell: "gawk '$3 == \"CONTROL\" {{ print $1 }}' {input:q} | tail -n +2 > {output:q}"
 
 rule generate_psam_file:
     input: "output/phenotype-info/samples.tsv"
     output: "output/phenotype-info/samples.psam"
-    shell: "tail -n +2 {input:q} | awk ' \
+    shell: "tail -n +2 {input:q} | gawk ' \
                 BEGIN {{ \
                     OFS=\"\\t\"; \
                     print \"#IID\", \"SEX\", \"ALS\", \"MS\" \
@@ -328,6 +342,22 @@ rule generate_psam_file:
                     print $1, $2, \
                         $3 == \"CONTROL\" ? 1 : $3 == \"ALS\" ? 2 : -9, \
                         $3 == \"CONTROL\" ? 1 : $3 == \"MS\"  ? 2 : -9  \
+                }} \
+            ' > {output:q}"
+
+rule generate_ped_file:
+    input: "output/phenotype-info/samples.tsv"
+    output: "output/phenotype-info/samples.ped"
+    shell: "tail -n +2 {input:q} | gawk ' \
+                BEGIN {{ \
+                    OFS=\"\\t\"; \
+                    print \"FID\", \"IID\", \"FATID\", \"MATID\", \"SEX\", \"ALS\", \"MS\" \
+                }} \
+                {{ \
+                    print $1, $1, 0, 0, \
+                        $2 == \"M\" ? 1 : $2 == \"F\" ? 2 : 0, \
+                        $3 == \"CONTROL\" ? 1 : $3 == \"ALS\" ? 2 : 0, \
+                        $3 == \"CONTROL\" ? 1 : $3 == \"MS\"  ? 2 : 0  \
                 }} \
             ' > {output:q}"
 
@@ -350,9 +380,28 @@ rule test_hwe_on_unfiltered_variants_in_controls:
 
 rule test_common_variants_association:
     input: multiext("output/variant-analysis/unfiltered", ".pgen", ".pvar", ".psam")
-    output: expand("output/variant-analysis/common.{c}.glm.logistic.hybrid", c=["ALS", "MS"])
+    output: expand("output/variant-analysis/cva.{c}.glm.logistic.hybrid", c=["ALS", "MS"])
     shell: "plink2 --pfile output/variant-analysis/unfiltered --maf 0.05 \
-                   --glm allow-no-covars --out output/variant-analysis/common"
+                   --glm allow-no-covars --out output/variant-analysis/cva"
+
+rule download_ucsc_ref_flat_genes_hg19:
+    output: "vendor/rvtests/refFlat_hg19.txt.gz"
+    shell: "wget -O - 'http://hgdownload.cse.ucsc.edu/goldenPath/hg19/database/refFlat.txt.gz' > {output:q}"
+
+rule test_rare_variants_association:
+    input:
+        vcf="output/clinvar-annotated-variants/annotated.vcf.gz",
+        tbi="output/clinvar-annotated-variants/annotated.vcf.gz.tbi",
+        ped="output/phenotype-info/samples.ped",
+        ucsc_gene_file="vendor/rvtests/refFlat_hg19.txt.gz"
+    output: multiext("output/variant-analysis/rva.{pheno}", \
+                     ".CMC.assoc", ".Kbac.assoc", ".Skat.assoc", \
+                     ".VariableThresholdPrice.assoc")
+    shell: "rvtest --noweb --inVcf {input.vcf:q} \
+                   --pheno {input.ped:q} --pheno-name {wildcards.pheno} \
+                   --freqUpper 0.05 --burden cmc --vt price --kernel skat,kbac \
+                   --geneFile {input.ucsc_gene_file:q} \
+                   --out output/variant-analysis/rva.{wildcards.pheno}"
 
 rule make_volcano_plot_from_association_test_results:
     input:
