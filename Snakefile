@@ -26,23 +26,9 @@ rule compress_output_file_bgzip:
     shell: "bgzip --keep {input:q}"
 
 rule index_vcf_file_tbi:
-    input: "output/{path}.vcf.{ext}"
-    output: "output/{path}.vcf.{ext,b?gz}.tbi"
+    input: "output/{path}.{ext}"
+    output: "output/{path}.{ext}.tbi"
     shell: "bcftools index {input:q} -t -o {output:q}"
-
-rule index_bcf_file_tbi:
-    input: "output/{path}.bcf"
-    output: "output/{path}.bcf.tbi"
-    shell: "bcftools index {input:q} -t -o {output:q}"
-
-rule download_annovar:
-    output: "vendor/annovar.latest.tar.gz"
-    shell: "open https://www.openbioinformatics.org/annovar/annovar_download_form.php"
-
-rule unpack_annovar:
-    input: "vendor/annovar.latest.tar.gz"
-    output: directory("vendor/annovar")
-    shell: "tar -xvf {input} -C vendor"
 
 rule download_ucsc_hg38_ref_genome:
     output: "vendor/genomes/hg38/hg38.fa.gz"
@@ -72,8 +58,8 @@ rule remove_format_pl_from_vcf_file:
 
 rule merge_vcf_files:
     input:
-        vcf = expand("output/normalized-variants/{sample}.vcf.gz", sample=samples),
-        tbi = expand("output/normalized-variants/{sample}.vcf.gz.tbi", sample=samples)
+        vcf=expand("output/noformatpl-variants/{sample}.vcf.gz", sample=samples),
+        tbi=expand("output/noformatpl-variants/{sample}.vcf.gz.tbi", sample=samples)
     output: "output/merged-variants/merged.vcf.gz"
     shell: "bcftools merge -m none {input.vcf:q} -Oz -o {output:q}"
 
@@ -81,7 +67,6 @@ rule calculate_maf_from_vcf_file:
     input: "output/merged-variants/merged.vcf.gz"
     output: "output/tagged-variants/variants.bcf"
     shell: "bcftools +fill-tags {input:q} -Ob -o {output:q}"
-
 
 rule extract_variant_file_sample_names:
     input: "output/tagged-variants/variants.bcf"
@@ -124,32 +109,13 @@ rule filter_vcf_files_out:
     output: "output/filtered-variants/excluded.vcf"
     shell: "bcftools view -f FAIL {input:q} -Ou -o {output:q}"
 
-rule download_annovar_dbfile:
-    output: "vendor/annovar/humandb/{dbfile}"
-    shell: "wget -q -O - http://www.openbioinformatics.org/annovar/download/{wildcards.dbfile}.gz | gunzip > {output:q}"
-
-rule annovar_annotate_merged_variants:
-    input:
-        av_tableav="vendor/annovar/table_annovar.pl",
-        av_hg38_knowngene="vendor/annovar/humandb/hg38_knownGene.txt",
-        av_hg38_knowngene_kgxref="vendor/annovar/humandb/hg38_kgXref.txt",
-        av_hg38_knowngene_mrna="vendor/annovar/humandb/hg38_knownGeneMrna.fa",
-        av_hg38_dbnsfp30a="vendor/annovar/humandb/hg38_dbnsfp30a.txt",
-        vcf="output/renamed-variants/included.vcf"
-    output: multiext("output/annovar-annotated-variants/annotated.hg38_multianno", ".vcf", ".txt")
-    shell: "{input.av_tableav} -buildver hg38 {input.vcf:q} \
-            -out output/annovar-annotated-variants/annotated \
-            -protocol refGene,cytoBand,dbnsfp30a \
-            -operation g,r,f -nastring . -vcfinput -polish \
-            vendor/annovar/humandb"
-
 rule download_vep_cache_files:
     output: "vendor/vep/homo_sapiens_vep_{ver}_{genome}.tar.gz"
-    shell: "curl https://ftp.ensembl.org/pub/release-{wildcards.ver}/variation/indexed_vep_cache/homo_sapiens_vep_{wildcards.ver}_{wildcards.genome}.tar.gz -o {output:q}"
+    shell: "curl -k https://ftp.ensembl.org/pub/release-{wildcards.ver}/variation/indexed_vep_cache/homo_sapiens_vep_{wildcards.ver}_{wildcards.genome}.tar.gz -o {output:q}"
 
 rule download_vep_refseq_files:
     output: "vendor/vep/homo_sapiens_vep_{ver}_GRCh38.dna.primary_assembly.fa.gz"
-    shell: "curl https://ftp.ensembl.org/pub/release-{wildcards.ver}/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz -o {output:q}"
+    shell: "curl -k https://ftp.ensembl.org/pub/release-{wildcards.ver}/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz -o {output:q}"
 
 rule bgzip_compress_vep_refseq_files:
     input: "vendor/vep/homo_sapiens_vep_{ver}_GRCh38.dna.primary_assembly.fa.gz"
@@ -189,6 +155,7 @@ rule index_dbnsfp_database_processed_file_GRCh38:
 
 rule vep_annotate_merged_variants:
     input:
+        go_terms="vendor/vep/go_terms",
         vep_cache="vendor/vep/homo_sapiens/112_GRCh38",
         vep_refseq="vendor/vep/homo_sapiens_vep_112_GRCh38.dna.primary_assembly.fa.bgz",
         dbnsfp_db="vendor/vep/dbnsfp/dbNSFP4.8a_GRCh38.gz",
@@ -196,96 +163,89 @@ rule vep_annotate_merged_variants:
         spliceai_snv=f"{SPLICEAI_GENOME_SCORES_DIR}/spliceai_scores.raw.snv.hg38.vcf.gz",
         spliceai_indel=f"{SPLICEAI_GENOME_SCORES_DIR}/spliceai_scores.raw.indel.hg38.vcf.gz",
         vcf="output/filtered-variants/included.vcf"
-    output: "output/vep-annotated-variants/merged.vcf"
-    shell: "vep --force_overwrite --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.vep_refseq:q} --everything \
+    output: "output/vep-annotated-variants/annotated.vcf"
+    shell: "vep --cache --dir vendor/vep -i {input.vcf:q} --fasta {input.vep_refseq:q} --everything \
         --plugin dbNSFP,{input.dbnsfp_db:q},SIFT_score,SIFT_converted_rankscore,SIFT_pred,SIFT4G_score,SIFT4G_converted_rankscore,SIFT4G_pred,Polyphen2_HDIV_score,Polyphen2_HDIV_rankscore,Polyphen2_HDIV_pred,Polyphen2_HVAR_score,Polyphen2_HVAR_rankscore,Polyphen2_HVAR_pred,LRT_score,LRT_converted_rankscore,LRT_pred,FATHMM_score,FATHMM_converted_rankscore,FATHMM_pred,CADD_raw,CADD_raw_rankscore,CADD_phred,MutationTaster_score,MutationTaster_converted_rankscore,MutationTaster_pred,MetaLR_score,MetaLR_rankscore,MetaLR_pred,MetaSVM_score,MetaSVM_rankscore,MetaSVM_pred,MetaRNN_score,MetaRNN_rankscore,MetaRNN_pred,REVEL_score,REVEL_rankscore,PROVEAN_score,PROVEAN_converted_rankscore,PROVEAN_pred,GERP++_NR,GERP++_RS,GERP++_RS_rankscore,phyloP100way_vertebrate,phyloP100way_vertebrate_rankscore,phastCons100way_vertebrate,phastCons100way_vertebrate_rankscore \
         --plugin SpliceAI,snv={input.spliceai_snv:q},indel={input.spliceai_indel:q} \
-        --fork 4 --offline --vcf -o {output:q}"
+        --plugin GO,dir={input.go_terms:q} --fork 4 --force_overwrite --vcf -o {output:q}"
 
 rule split_vep_annotated_variant_files:
     input:
-        vcf="output/vep-annotated-variants/merged.vcf.gz",
-        tbi="output/vep-annotated-variants/merged.vcf.gz.tbi"
-    output: "output/vep-annotated-variants/split.{chrN}.vcf.gz"
+        vcf="output/vep-annotated-variants/annotated.vcf.gz",
+        tbi="output/vep-annotated-variants/annotated.vcf.gz.tbi"
+    output: "output/vep-annotated-variants/annotated.{chrN}.vcf.gz"
     shell: "bcftools view -Oz {input.vcf:q} -o {output:q} --regions {wildcards.chrN}"
 
 rule download_gnomad_exome_files:
     output: "vendor/gnomad/{version}/exomes/{file}"
-    shell: "curl 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/vcf/exomes/{wildcards.file}' -o {output:q}"
+    shell: "curl -k 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/vcf/exomes/{wildcards.file}' -o {output:q}"
 
 rule download_gnomad_genome_files:
     output: "vendor/gnomad/{version}/genomes/{file}"
-    shell: "curl 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/vcf/genomes/{wildcards.file}' -o {output:q}"
+    shell: "curl -k 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/vcf/genomes/{wildcards.file}' -o {output:q}"
 
 rule download_gnomad_sv_files:
    output: "vendor/gnomad/{version}/genome_sv/{file}"
-   shell: "curl 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/genome_sv/{wildcards.file}' -o {output:q}"
+   shell: "curl -k 'https://storage.googleapis.com/gcp-public-data--gnomad/release/{wildcards.version}/genome_sv/{wildcards.file}' -o {output:q}"
 
 rule download_clinvar_files:
     output: "vendor/clinvar/{build}/{file}"
-    shell: "curl 'https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_{wildcards.build}/{wildcards.file}' -o {output:q}"
+    shell: "curl -k 'https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_{wildcards.build}/{wildcards.file}' -o {output:q}"
 
 rule download_dbsnp_files:
     output: "vendor/dbsnp/GRCh38/{file}"
-    shell: "curl 'https://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/{wildcards.file}' -o {output:q}"
+    shell: "curl -k 'https://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/{wildcards.file}' -o {output:q}"
+
+rule interpolate_vcfanno_gnomad_file_nuclear:
+    input:
+        config="config/gnomad-chrN.conf.in",
+        gnomad_vcf="vendor/gnomad/4.1/genomes/gnomad.genomes.v4.1.sites.{chrN}.vcf.bgz"
+    output: "output/gnomad-annotated-variants/vcfanno_gnomad_nsv.{chrN}.conf"
+    shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
 
 rule interpolate_vcfanno_gnomad_file_mitochondrial:
     input:
         config="config/gnomad-chrM.conf.in",
         gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz"
-    output: "output/gnomad-annotated-variants/vcfanno.chrM.conf"
-    shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
-
-rule interpolate_vcfanno_gnomad_file_nuclear:
-    input:
-        config="config/gnomad.conf.in",
-        gnomad_vcf="vendor/gnomad/4.1/genomes/gnomad.genomes.v4.1.sites.{chrN}.vcf.bgz"
-    output: "output/gnomad-annotated-variants/vcfanno.{chrN}.conf"
+    output: "output/gnomad-annotated-variants/vcfanno_gnomad_nsv.chrM.conf"
     shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
 
 rule interpolate_vcfanno_gnomad_file_sv:
    input:
        config="config/gnomad-sv.conf.in",
        gnomad_vcf="vendor/gnomad/4.1/genome_sv/gnomad.v4.1.sv.sites.vcf.gz"
-   output: "output/gnomad-annotated-variants/vcfanno.genome_sv.conf"
+   output: "output/gnomad-annotated-variants/vcfanno_gnomad_sv.conf"
    shell: "GNOMAD_VCF_FILE={input.gnomad_vcf:q} envsubst < {input.config:q} > {output:q}"
-
-rule gnomad_annotate_mitochondrial_variants:
-    input:
-        gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz",
-        gnomad_tbi="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz.tbi",
-        vcfanno_config="output/gnomad-annotated-variants/vcfanno.chrM.conf",
-        vcf="output/vep-annotated-variants/split.chrM.vcf.gz"
-    output: "output/gnomad-annotated-variants/annotated.chrM.vcf"
-    shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule gnomad_annotate_nuclear_variants:
     input:
         gnomad_vcf="vendor/gnomad/4.1/genomes/gnomad.genomes.v4.1.sites.{chrN}.vcf.bgz",
         gnomad_tbi="vendor/gnomad/4.1/genomes/gnomad.genomes.v4.1.sites.{chrN}.vcf.bgz.tbi",
-        vcfanno_config="output/gnomad-annotated-variants/vcfanno.{chrN}.conf",
-        vcf="output/vep-annotated-variants/split.{chrN}.vcf.gz"
-    output: "output/gnomad-annotated-variants/annotated.{chrN}.vcf"
-    shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
+        vcfanno_config="output/gnomad-annotated-variants/vcfanno_gnomad_nsv.{chrN}.conf",
+        vcf="output/vep-annotated-variants/annotated.{chrN}.vcf.gz"
+    output: "output/gnomad-annotated-variants/annotated_nsv.{chrN}.vcf"
+    shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
-rule concat_gnomad_annotated_variant_files:
+rule gnomad_annotate_mitochondrial_variants:
     input:
-        vcf=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz", N=all_chrN),
-        tbi=expand("output/gnomad-annotated-variants/annotated.chr{N}.vcf.gz.tbi", N=all_chrN)
-    output: "output/gnomad-annotated-variants/annotated-nsv.vcf"
-    shell: "bcftools concat {input.vcf:q} -Ov -o {output:q}"
+        gnomad_vcf="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz",
+        gnomad_tbi="vendor/gnomad/3.1/genomes/gnomad.genomes.v3.1.sites.chrM.vcf.bgz.tbi",
+        vcfanno_config="output/gnomad-annotated-variants/vcfanno_gnomad_nsv.chrM.conf",
+        vcf="output/vep-annotated-variants/annotated_go.chrM.vcf.gz"
+    output: "output/gnomad-annotated-variants/annotated_nsv.chrM.vcf"
+    shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule gnomad_annotate_structural_variants:
     input:
        gnomad_sv_vcf="vendor/gnomad/4.1/genome_sv/gnomad.v4.1.sv.sites.vcf.gz",
        gnomad_sv_tbi="vendor/gnomad/4.1/genome_sv/gnomad.v4.1.sv.sites.vcf.gz.tbi",
-       vcfanno_config="output/gnomad-annotated-variants/vcfanno.genome_sv.conf",
-       vcf="output/gnomad-annotated-variants/annotated-nsv.vcf"
-    output: "output/gnomad-annotated-variants/annotated.vcf"
-    shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
+       vcfanno_config="output/gnomad-annotated-variants/vcfanno_gnomad_sv.conf",
+       vcf="output/gnomad-annotated-variants/annotated_nsv.{chrN}.vcf"
+    output: "output/gnomad-annotated-variants/annotated.{chrN}.vcf"
+    shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
 
 rule generate_chr_conversion_file:
-    output: "output/gnomad-annotated-variants/chr-conv.txt"
+    output: "output/clinvar-annotated-variants/chr-conv.txt"
     run:
         with open(output[0], "w") as out:
             for n in all_chrN:
@@ -296,49 +256,49 @@ rule generate_chr_conversion_file:
 
 rule rename_chrs_in_gnomad_annotate_variants:
     input:
-        vcf="output/gnomad-annotated-variants/annotated.vcf",
-        chr_conv="output/gnomad-annotated-variants/chr-conv.txt"
-    output: "output/gnomad-annotated-variants/chr_renamed.vcf.gz"
-    shell: "bcftools annotate --rename-chrs {input.chr_conv:q} {input.vcf:q} -Oz -o {output:q}"
+        vcf="output/gnomad-annotated-variants/annotated.{chrN}.vcf",
+        chr_conv="output/clinvar-annotated-variants/chr-conv.txt"
+    output: "output/clinvar-annotated-variants/chr_renamed.{chrN}.vcf"
+    shell: "bcftools annotate --rename-chrs {input.chr_conv:q} {input.vcf:q} -Ov -o {output:q}"
 
 rule interpolate_vcfanno_clinvar_dbsnp_file:
     input:
         config="config/clinvar_dbsnp.conf.in",
         clinvar_vcf="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz",
         dbsnp_vcf="vendor/dbsnp/GRCh38/All_20180418.vcf.gz"
-    output: "output/clinvar-annotated-variants/vcfanno.conf"
+    output: "output/clinvar-annotated-variants/vcfanno_clinvar.conf"
     shell: "CLINVAR_VCF_FILE={input.clinvar_vcf:q} DBSNP_VCF_FILE={input.dbsnp_vcf:q} envsubst < {input.config:q} > {output:q}"
 
-rule clinvar_annotate_variants:
+rule clinvar_annotate_variant_files:
     input:
         clinvar_vcf="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz",
         clinvar_tbi="vendor/clinvar/GRCh38/clinvar_20240221.vcf.gz.tbi",
         dbsnp_vcf="vendor/dbsnp/GRCh38/All_20180418.vcf.gz",
         dbsnp_tbi="vendor/dbsnp/GRCh38/All_20180418.vcf.gz.tbi",
-        vcfanno_config="output/clinvar-annotated-variants/vcfanno.conf",
-        vcf="output/gnomad-annotated-variants/chr_renamed.vcf.gz"
-    output: "output/clinvar-annotated-variants/annotated.vcf"
-    shell: "vcfanno -p $(nproc --all) -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
+        vcfanno_config="output/clinvar-annotated-variants/vcfanno_clinvar.conf",
+        vcf="output/clinvar-annotated-variants/chr_renamed.{chrN}.vcf"
+    output: "output/clinvar-annotated-variants/annotated.{chrN}.vcf"
+    shell: "vcfanno -lua config/custom.lua {input.vcfanno_config:q} {input.vcf:q} > {output:q}"
+
+rule concat_clinvar_annotated_variant_files:
+    input: expand("output/clinvar-annotated-variants/annotated.chr{N}.vcf", N=all_chrN)
+    output: "output/clinvar-annotated-variants/annotated.bcf"
+    shell: "bcftools concat {input:q} -Ob -o {output:q}"
 
 rule export_variant_stats:
-    input: "output/clinvar-annotated-variants/annotated.vcf"
+    input: "output/clinvar-annotated-variants/annotated.bcf"
     output: "output/analysis-report/variant-stats.tsv"
     shell: "bcftools +split-vep -H -d \
         -f '%CHROM\t%POS\t%REF\t%ALT\t%QUAL\t%DP\t%INFO/gno_id\t%INFO/dbsnp_id\t%INFO/clinvar_id\t%INFO/gno_af_all\t%CSQ\n' -A tab \
         {input:q} | sort | uniq > {output:q}"
 
-rule convert_annotated_variants_to_bcf:
-    input: "output/clinvar-annotated-variants/annotated.vcf"
-    output: "output/filtered-annotated-variants/unfiltered.bcf"
-    shell: "bcftools view -Ob -o {output:q} {input:q}"
-
 rule filter_annotated_variants_maf_lt:
-    input: "output/filtered-annotated-variants/unfiltered.bcf"
+    input:  "output/clinvar-annotated-variants/annotated.bcf"
     output: "output/filtered-annotated-variants/maf_lt_{threshold}.bcf"
     shell: "bcftools view -i 'MAF < {wildcards.threshold}' -Ob -o {output:q} {input:q}"
 
 rule filter_annotated_variants_maf_gt:
-    input: "output/filtered-annotated-variants/unfiltered.bcf"
+    input: "output/clinvar-annotated-variants/annotated.bcf"
     output: "output/filtered-annotated-variants/maf_gt_{threshold}.bcf"
     shell: "bcftools view -i 'MAF > {wildcards.threshold}' -Ob -o {output:q} {input:q}"
 
@@ -355,22 +315,27 @@ rule extract_control_samples:
 rule generate_psam_file:
     input: "output/phenotype-info/samples.tsv"
     output: "output/phenotype-info/samples.psam"
-    shell: "tail -n +2 {input:q} | \
-            awk 'BEGIN {{ OFS=\"\\t\"; print \"#IID\", \"SEX\", \"CONTROL\", \"ALS\", \"MS\" }} \
-                 {{ print $1, $2, \
-                    $3 == \"CONTROL\" ? 2 : $3 == \"ALS\" || $3 == \"MS\" ? 1 : -9, \
-                    $3 == \"CONTROL\" ? 1 : $3 == \"ALS\" ? 2 : -9, \
-                    $3 == \"CONTROL\" ? 1 : $3 == \"MS\"  ? 2 : -9  \
-                 }}' > {output:q}"
+    shell: "tail -n +2 {input:q} | awk ' \
+                BEGIN {{ \
+                    OFS=\"\\t\"; \
+                    print \"#IID\", \"SEX\", \"CONTROL\", \"ALS\", \"MS\" \
+                }} \
+                {{ \
+                    print $1, $2, \
+                        $3 == \"CONTROL\" ? 2 : $3 == \"ALS\" || $3 == \"MS\" ? 1 : -9, \
+                        $3 == \"CONTROL\" ? 1 : $3 == \"ALS\" ? 2 : -9, \
+                        $3 == \"CONTROL\" ? 1 : $3 == \"MS\"  ? 2 : -9  \
+                }} \
+            ' > {output:q}"
 
 rule convert_unfiltered_variants_to_plink:
     input:
-        bcf="output/filtered-annotated-variants/{variants}.bcf",
+        bcf="output/clinvar-annotated-variants/annotated.bcf",
         psam="output/phenotype-info/samples.psam"
-    output: multiext("output/variant-analysis/{variants}", ".pgen", ".pvar", ".psam")
+    output: multiext("output/variant-analysis/unfiltered", ".pgen", ".pvar", ".psam")
     shell: "plink2 --make-pgen --bcf {input.bcf:q} \
                    --psam {input.psam:q} --double-id  \
-                   --out output/variant-analysis/{wildcards.variants}"
+                   --out output/variant-analysis/unfiltered"
 
 rule test_hwe_on_unfiltered_variants_in_controls:
     input:
