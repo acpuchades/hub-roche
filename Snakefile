@@ -15,7 +15,11 @@ rule all:
         "output/filtered-annotated-variants/maf_gt_0.05.bcf",
         "output/filtered-annotated-variants/maf_lt_0.05.bcf",
         "output/filtered-annotated-variants/maf_lt_0.01.bcf",
-        "output/variant-analysis/controls.hardy"
+        "output/variant-analysis/controls.hardy",
+        "output/variant-analysis/common.ALS.glm.logistic.hybrid.volcano.png",
+        "output/variant-analysis/common.MS.glm.logistic.hybrid.volcano.png",
+        "output/variant-analysis/common.ALS.glm.logistic.hybrid.manhattan.png",
+        "output/variant-analysis/common.MS.glm.logistic.hybrid.manhattan.png"
 
 rule clean:
     shell: "rm -rf output"
@@ -318,11 +322,10 @@ rule generate_psam_file:
     shell: "tail -n +2 {input:q} | awk ' \
                 BEGIN {{ \
                     OFS=\"\\t\"; \
-                    print \"#IID\", \"SEX\", \"CONTROL\", \"ALS\", \"MS\" \
+                    print \"#IID\", \"SEX\", \"ALS\", \"MS\" \
                 }} \
                 {{ \
                     print $1, $2, \
-                        $3 == \"CONTROL\" ? 2 : $3 == \"ALS\" || $3 == \"MS\" ? 1 : -9, \
                         $3 == \"CONTROL\" ? 1 : $3 == \"ALS\" ? 2 : -9, \
                         $3 == \"CONTROL\" ? 1 : $3 == \"MS\"  ? 2 : -9  \
                 }} \
@@ -338,12 +341,29 @@ rule convert_unfiltered_variants_to_plink:
                    --out output/variant-analysis/unfiltered"
 
 rule test_hwe_on_unfiltered_variants_in_controls:
-    input:
-        pgen="output/variant-analysis/unfiltered.pgen",
-        pvar="output/variant-analysis/unfiltered.pvar",
-        psam="output/variant-analysis/unfiltered.psam"
+    input: multiext("output/variant-analysis/unfiltered", ".pgen", ".pvar", ".psam")
     output: "output/variant-analysis/controls.hardy"
-    shell: "plink2 --pgen {input.pgen:q} --pvar {input.pvar:q} --psam {input.psam:q} \
+    shell: "plink2 --pfile output/variant-analysis/unfiltered \
                    --hardy --snps-only --autosome \
-                   --keep-if CONTROL == 2 --keep-founders \
+                   --keep-if ALS == 1 --keep-founders \
                    --out output/variant-analysis/controls"
+
+rule test_common_variants_association:
+    input: multiext("output/variant-analysis/unfiltered", ".pgen", ".pvar", ".psam")
+    output: expand("output/variant-analysis/common.{c}.glm.logistic.hybrid", c=["ALS", "MS"])
+    shell: "plink2 --pfile output/variant-analysis/unfiltered --maf 0.05 \
+                   --glm allow-no-covars --out output/variant-analysis/common"
+
+rule make_volcano_plot_from_association_test_results:
+    input:
+        rscript="src/make-volcano-plot.r",
+        results="output/variant-analysis/{results}"
+    output: "output/variant-analysis/{results}.volcano.png"
+    shell: "Rscript {input.rscript:q} {input.results:q} {output:q}"
+
+rule make_manhattan_plot_from_association_test_results:
+    input:
+        rscript="src/make-manhattan-plot.r",
+        results="output/variant-analysis/{results}"
+    output: "output/variant-analysis/{results}.manhattan.png"
+    shell: "Rscript {input.rscript:q} {input.results:q} {output:q}"
