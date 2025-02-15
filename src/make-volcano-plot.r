@@ -17,11 +17,10 @@ datos |>
   mutate(q_fdr = p.adjust(p, method = "fdr")) |>
   ggplot(aes(log2(or), -log10(p), color = q_fdr < 0.05)) +
   geom_point() +
-  coord_cartesian(xlim = c(-15, 15)) +
   scale_color_manual(values = c("black", "red")) +
   labs(
     x = TeX("$log_{2}(OR)$"),
     y = TeX("$-log_{10}(P)$"),
     color = TeX("$FDR < 0.05$"),
   )
-ggsave(output_path, width = 10, height = 10, dpi = 300)
+ggsave(output_path, width = 12, height = 8, dpi = 300)

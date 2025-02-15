@@ -31,17 +31,14 @@ axis_set <- datos |>
   summarize(center = mean(pos_acc))
 
 datos |>
-  ggplot(aes(pos_acc, -log10(p), color = chrom)) +
+  ggplot(aes(pos_acc, -log10(p), color = as.factor(chrom_num %% 2))) +
   geom_point(size = 1) +
   scale_x_continuous(
     label = axis_set$chrom,
     breaks = axis_set$center
   ) +
-  scale_color_manual(values = rep(
-    c("#276FBF", "#183059"),
-    unique(length(axis_set$chrom))
-  )) +
-  labs(x = NULL, y = TeX("$-log_{10}(P)$"), color = NULL) +
+  scale_color_manual(values = c("#276FBF", "#183059")) +
+  labs(x = "Chromosome", y = TeX("$-log_{10}(P)$"), color = NULL) +
   theme(
     legend.position = "none",
     panel.grid.major.x = element_blank(),

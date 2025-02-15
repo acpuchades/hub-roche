@@ -12,7 +12,8 @@ library(RSQLite)
 
 source("src/utils.r")
 
-sample_ids <- read_lines("output/renamed-variants/samples.normalized.txt") |>
+args <- commandArgs(trailingOnly = TRUE)
+sample_ids <- read_lines(args[1]) |>
   as_tibble_col("sample_id")
 
 ms_sample_ids <- sample_ids |>
