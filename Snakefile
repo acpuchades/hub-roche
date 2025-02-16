@@ -6,7 +6,7 @@ auto_chrN = [str(x) for x in range(1,23)]
 nuclear_chrN = auto_chrN + ['X', 'Y']
 all_chrN = nuclear_chrN + ['M']
 
-all_pheno = ["ALS", "MS"]
+all_pheno = ["ALS", "MS", "ALS_MS"]
 
 cva_suffixes = [".qq.png", ".volcano.png", ".manhattan.png", ".bar.png"]
 
@@ -17,7 +17,7 @@ rva_mafs = ["any", 0.01, 0.02, 0.05]
 
 rule all:
     input:
-        expand("output/phenotype-info/{pheno}.samples", pheno=["CONTROL", *all_pheno]),
+        expand("output/phenotype-info/{pheno}.samples", pheno=["CONTROL", "ALS", "MS"]),
         "output/variant-analysis/ALL_PCA.eigenval.scree.png",
         "output/variant-analysis/CONTROL_HWE.hardy.ternary.png",
         expand(
@@ -389,7 +389,7 @@ rule extract_samples_by_pheno:
 rule generate_psam_file:
     input: "output/phenotype-info/ALL.tsv"
     output: "output/variant-analysis/input/samples.psam"
-    shell: "echo -e '#IID\tSEX\tALS\tMS' > {output:q} && \
+    shell: "echo -e '#IID\tSEX\tALS\tMS\tALS_MS' > {output:q} && \
             gawk ' \
                 BEGIN {{ OFS=\"\\t\"; }}\
                 {{ \
@@ -402,6 +402,9 @@ rule generate_psam_file:
                             : \"NA\", \
                         $4 == \"CONTROL\" ? 1 \
                             : $4 == \"MS\" ? 2 \
+                            : \"NA\", \
+                        $4 == \"CONTROL\" ? 1 \
+                            : ($4 == \"ALS\" || $4 == \"MS\") ? 2 \
                             : \"NA\" \
                 }} \
             ' <(tail -n +2 {input:q}) >> {output:q}"
@@ -409,7 +412,7 @@ rule generate_psam_file:
 rule generate_ped_file:
     input: "output/phenotype-info/ALL.tsv"
     output: "output/variant-analysis/input/samples.ped"
-    shell: "echo -e 'FID\tIID\tFATID\tMATID\tSEX\tALS\tMS' > {output:q} && \
+    shell: "echo -e 'FID\tIID\tFATID\tMATID\tSEX\tALS\tMS\tALS_MS' > {output:q} && \
             gawk ' \
                 BEGIN {{ OFS=\"\\t\"; }}\
                 {{ \
@@ -422,6 +425,9 @@ rule generate_ped_file:
                             : \"NA\", \
                         $4 == \"CONTROL\" ? 1 \
                             : $4 == \"MS\" ? 2 \
+                            : \"NA\", \
+                        $4 == \"CONTROL\" ? 1 \
+                            : ($4 == \"ALS\" || $4 == \"MS\") ? 2 \
                             : \"NA\" \
                 }} \
             ' <(tail -n +2 {input:q}) >> {output:q}"
@@ -473,7 +479,7 @@ rule test_common_variants_association:
         samples_pca="output/variant-analysis/ALL_PCA.eigenvec"
     output: expand("output/variant-analysis/cva/results.{pheno}.glm.logistic.hybrid", pheno=all_pheno)
     shell: "plink2 --pfile output/variant-analysis/input/samples --glm --maf 0.05 \
-                   --covar {input.samples_pca:q} --covar-col-nums 2-8 \
+                   --covar {input.samples_pca:q} --covar-col-nums 2-5 \
                    --out output/variant-analysis/cva/results"
 
 rule download_ucsc_ref_flat_genes_hg38:
