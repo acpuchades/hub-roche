@@ -20,7 +20,7 @@ normalize_sample_id <- function(x) {
 
 biobank_donor_id <- function(x) {
   x |>
-    str_replace_all("\\([0-9]+\\)$", "") |>
+    str_replace_all("\\([^)]+\\)$", "") |>
     str_trim()
 }
 

@@ -4,7 +4,7 @@ library(lubridate)
 library(DBI)
 library(RSQLite)
 
-source("R/utils.r")
+source("src/utils.r")
 
 as_genetic_status <- function(x) {
   factor(x, levels = c("Normal", "Alterado"))
@@ -39,7 +39,7 @@ as_site_of_onset <- function(x) {
   )
 }
 
-ufela_db <- dbConnect(SQLite(), "data/formulario_2024-10-28.sqlite")
+ufela_db <- dbConnect(SQLite(), "data/ufela/formulario_2023-11-15.sqlite")
 
 ufela_pacientes <- dbReadTable(ufela_db, "pacientes") |>
   rename_with(normalize_names) |>
