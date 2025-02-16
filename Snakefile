@@ -11,8 +11,9 @@ all_pheno = ["ALS", "MS", "ALS_MS"]
 cva_suffixes = [".qq.png", ".volcano.png", ".manhattan.png", ".bar.png"]
 
 rva_tests = ["CMC", "VariableThresholdPrice", "Skat", "SkatO"]
+
+rva_filters = ["impact_HIGH", "cadd_20", "sift4g_D", "polyphen2_D"]
 rva_suffixes = [".qq.png", ".bar.png"]
-rva_filters = ["nofilter", "impact_HIGH", "cadd_20", "sift4g_D", "polyphen2_D"]
 rva_mafs = ["any", 0.01, 0.02, 0.05]
 
 rule all:
