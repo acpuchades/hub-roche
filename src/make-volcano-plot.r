@@ -13,11 +13,12 @@ output_path <- args[2]
 datos <- read_tsv(input_path) |> rename_with(normalize_names)
 
 datos |>
+  slice_head(n = 1, by = c(chrom, pos, alt)) |>
   drop_na(p, or) |>
   mutate(q_fdr = p.adjust(p, method = "fdr")) |>
-  ggplot(aes(log2(or), -log10(p), color = q_fdr < 0.05)) +
+  ggplot(aes(log2(or), -log10(p), color = q_fdr <= 0.05)) +
   geom_point() +
-  scale_color_manual(values = c("black", "red")) +
+  scale_color_manual(values = c(`FALSE` = "black", `TRUE` = "red")) +
   labs(
     x = TeX("$log_{2}(OR)$"),
     y = TeX("$-log_{10}(P)$"),

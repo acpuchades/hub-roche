@@ -12,6 +12,7 @@ output_path <- args[2]
 
 datos <- read_tsv(input_path) |>
   rename_with(normalize_names) |>
+  slice_head(n = 1, by = c(chrom, pos, alt)) |>
   mutate(chrom_num = coalesce(
     as.integer(chrom),
     chrom |> case_match("X" ~ 23, "Y" ~ 24, "MT" ~ 25)
