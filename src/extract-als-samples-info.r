@@ -60,7 +60,7 @@ als_samples <- als_samples_bb |>
 als_groups_roche <- bind_rows(
   read_excel("data/ufela/grupos-20240112.xlsx", col_names = "codigo_donacion_recepcion", sheet = "ELA") |> mutate(grupo = "ELA"),
   read_excel("data/ufela/grupos-20240112.xlsx", col_names = "codigo_donacion_recepcion", sheet = "Controles") |> mutate(grupo = "Control"),
-)
+) |> mutate(grupo = grupo |> case_match("Control" ~ "CONTROL", "ELA" ~ "ELA"))
 
 als_groups_dropbox <- als_dropbox_data |>
   select(codigo_caso_noraybanks, codigo_donacion_recepcion, grupo)
@@ -116,7 +116,36 @@ als_nhc_group <- bind_rows(
 
 als_samples_info <- als_samples_nhc |>
   left_join(als_nhc_group, by = "nhc", na_matches = "never") |>
-  left_join(ufela_datos |> transmute(nhc, sexo, grupo = "ELA"), by = "nhc") |>
+  # left_join(als_cdr_group |> select(sample_id = "codigo_donante", grupo), by = "sample_id", na_matches = "never") |>
+  # mutate(grupo = coalesce(grupo.x, grupo.y), .keep = "unused") |>
+  # left_join(als_ccn_group |> select(sample_id = "codigo_caso_noraybanks", grupo), by = "sample_id", na_matches = "never") |>
+  # mutate(grupo = coalesce(grupo.x, grupo.y), .keep = "unused") |>
+  left_join(ufela_datos |> transmute(
+    nhc, sexo,
+    grupo = "ELA",
+    edad_inicio,
+    retraso_diagnostico_meses,
+    fenotipo = fenotipo_al_diagnostico |> case_match(
+      "ELA Bulbar" ~ "ALS-B",
+      "ELA Espinal" ~ "ALS-S",
+      "Monomiélica" ~ "ALS-S",
+      "ELA Respiratoria" ~ "ALS-R",
+      "Parálisis bulbar progresiva" ~ "PBP",
+      "Flail leg" ~ "FLS",
+      "Flail arm" ~ "FAS",
+      "Atrofia Muscular Progresiva (AMP)" ~ "PMA",
+      "Esclerosis Lateral Primaria (ELP)" ~ "PLS",
+    ),
+    delta_fs = if_else(fecha_deltafs - fecha_diagnostico_ela <= dmonths(12), delta_fs, NA_real_),
+    fvc_basal = if_else(fecha_fvc - fecha_diagnostico_ela <= dmonths(12), fvc_basal, NA),
+    categoria_progresion = if_else(fecha_deltafs - fecha_diagnostico_ela <= dmonths(12), categoria_progresion, NA),
+    supervivencia_meses = round((fecha_exitus - fecha_inicio_clinica) / dmonths(1), digits = 1),
+    across(
+      c(starts_with("fecha_kings_"), starts_with("fecha_mitos_")),
+      ~ round((.x - fecha_inicio_clinica) / dmonths(1), digits = 1),
+      .names = "tiempo_hasta_{str_remove(.col, 'fecha_')}"
+    ),
+  ), by = "nhc") |>
   mutate(
     grupo = coalesce(grupo.x, grupo.y), .keep = "unused",
     sexo = case_match(sexo, "Hombre" ~ "M", "Mujer" ~ "F")
@@ -130,11 +159,26 @@ als_samples_info <- als_samples_nhc |>
   slice_sample(n = 1, by = sample_id)
 
 als_samples_info |>
-  arrange(sample_id) |>
+  dplyr::arrange(factor(grupo, levels = c("ELA", "CONTROL")), sample_id) |>
   transmute(
     SAMPLE = sample_id,
     NHC = nhc,
     SEX = sexo,
-    PHENO = grupo |> case_match("CONTROL" ~ "CONTROL", "ELA" ~ "ALS")
+    PHENO = grupo |> case_match("CONTROL" ~ "CONTROL", "ELA" ~ "ALS"),
+    ALS_ONSET = edad_inicio,
+    ALS_PHENO = fenotipo,
+    ALS_DD = retraso_diagnostico_meses,
+    ALS_DFS = delta_fs,
+    ALS_PC = categoria_progresion,
+    ALS_FVC = fvc_basal,
+    ALS_KSS1 = tiempo_hasta_kings_1,
+    ALS_KSS2 = tiempo_hasta_kings_2,
+    ALS_KSS3 = tiempo_hasta_kings_3,
+    ALS_KSS4 = tiempo_hasta_kings_4,
+    ALS_MITOS1 = tiempo_hasta_mitos_1,
+    ALS_MITOS2 = tiempo_hasta_mitos_2,
+    ALS_MITOS3 = tiempo_hasta_mitos_3,
+    ALS_MITOS4 = tiempo_hasta_mitos_4,
+    ALS_SURVIVAL = supervivencia_meses,
   ) |>
   write_tsv(stdout())

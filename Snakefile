@@ -8,13 +8,10 @@ all_chrN = nuclear_chrN + ['M']
 
 all_pheno = ["ALS", "MS", "ALS_MS"]
 
-cva_suffixes = [".qq.png", ".volcano.png", ".manhattan.png", ".bar.png"]
-
-rva_tests = ["CMC", "VariableThresholdPrice", "Skat", "SkatO"]
-
+sva_suffixes = [".qq.png", ".volcano.png", ".manhattan.png", ".bar.png"]
 rva_filters = ["impact_HIGH", "cadd_20", "sift4g_D", "polyphen2_D"]
+rva_tests = ["SKAT", "SKATO"]
 rva_suffixes = [".qq.png", ".bar.png"]
-rva_mafs = ["any", 0.01, 0.02, 0.05]
 
 rule all:
     input:
@@ -22,13 +19,13 @@ rule all:
         "output/variant-analysis/ALL_PCA.eigenval.scree.png",
         "output/variant-analysis/CONTROL_HWE.hardy.ternary.png",
         expand(
-           "output/variant-analysis/cva/results.{pheno}.glm.logistic.hybrid{suffix}",
-           pheno=all_pheno, suffix=cva_suffixes
+           "output/variant-analysis/sva/results.{pheno}.glm.logistic.hybrid{suffix}",
+           pheno=all_pheno, suffix=sva_suffixes
         ),
         expand(
             "output/variant-analysis/rva.{filter}.maf_{maf}/{pheno}.{test}.assoc{suffix}",
-            pheno=all_pheno, filter=rva_filters, maf=rva_mafs,
-             test=rva_tests, suffix=rva_suffixes
+            pheno=all_pheno, filter=rva_filters, maf=[0.01, 0.05],
+            test=rva_tests, suffix=rva_suffixes
         )
 
 rule clean:
@@ -105,11 +102,11 @@ rule normalize_sample_names:
     output: "output/renamed-variant-samples/samples.normalized.txt"
     shell: "sed -e 's/^EMADN/EM/' \
                 -e 's/-ambBED$//' \
+                -e 's/-//g' \
                 -e 's/ELA1912ADN1/ELA1912-2/' \
                 -e 's/ELA1923ADN1/ELA1923-2/' \
                 -e 's/ELA1924ADN1/ELA1924-2/' \
                 -e 's/ADN[12]$//' \
-                -e 's/-//g' \
                 {input:q} > {output:q}"
 
 rule normalize_vcf_sample_headers:
@@ -310,7 +307,7 @@ rule concat_clinvar_annotated_variant_files:
 rule split_vep_tags_in_variant_files:
     input: "output/clinvar-annotated-variants/annotated.bcf"
     output: "output/split-tag-variants/split.bcf"
-    shell: "bcftools +split-vep -c IMPACT,Polyphen2_HVAR_pred,SIFT_pred,CADD_phred:Float,SIFT4G_pred,GO -s worst {input:q} -Ob -o {output:q}"
+    shell: "bcftools +split-vep -c SYMBOL,IMPACT,Polyphen2_HVAR_pred,SIFT_pred,CADD_phred:Float,SIFT4G_pred,GO -s worst {input:q} -Ob -o {output:q}"
 
 rule fill_tags_in_variant_files:
     input: "output/split-tag-variants/split.bcf"""
@@ -375,12 +372,11 @@ rule extract_sample_information_for_als_subjects:
 
 rule generate_overall_sample_information:
     input:
+        rscript="src/join-samples-info.r",
         als_info="output/phenotype-info/ALS.tsv",
         ms_info="output/phenotype-info/MS.tsv"
     output: "output/phenotype-info/ALL.tsv"
-    shell: "echo -e 'SAMPLE\tNHC\tSEX\tPHENO' > {output:q} && \
-            cut -f 1-4 <(tail -n +2 {input.als_info:q}) >> {output:q} && \
-            cut -f 1-4 <(tail -n +2 {input.ms_info:q})  >> {output:q}"
+    shell: "Rscript {input.rscript:q} {input.als_info:q} {input.ms_info:q} > {output:q}"
 
 rule extract_samples_by_pheno:
     input: "output/phenotype-info/ALL.tsv"
@@ -408,7 +404,7 @@ rule generate_psam_file:
                             : ($4 == \"ALS\" || $4 == \"MS\") ? 2 \
                             : \"NA\" \
                 }} \
-            ' <(tail -n +2 {input:q}) >> {output:q}"
+            ' <(tail -n +2 {input:q}) | sort -k1 >> {output:q}"
 
 rule generate_ped_file:
     input: "output/phenotype-info/ALL.tsv"
@@ -453,6 +449,25 @@ rule extract_variants_pca_for_samples:
                    --pca --maf 0.05 --indep-pairwise 200 50 0.2 \
                    --out output/variant-analysis/ALL_PCA"
 
+rule make_sample_covariates_file:
+    input:
+        samples_info="output/phenotype-info/ALL.tsv",
+        samples_pca="output/variant-analysis/ALL_PCA.eigenvec"
+    output: "output/variant-analysis/input/samples.cov"
+    shell: "echo -e 'FID\tIID\tFATID\tMATID\tSEX\tPC1\tPC2\tPC3\tPC4\tPC5\tPC6\tPC7\tPC8\tPC9\tPC10' > {output:q} && \
+            join -1 1 -2 1 <(tail -n +2 {input.samples_info:q} | sort -k1,1) \
+                           <(tail -n +2  {input.samples_pca:q} | sort -k1,1) \
+                | gawk ' \
+                    BEGIN {{ OFS=\"\\t\"; }} \
+                    {{ \
+                        print $1, $1, 0, 0, \
+                            $3 == \"M\" ? 1 \
+                                : $3 == \"F\" ? 2 \
+                                : 0, \
+                            $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 \
+                    }} \
+                ' >> {output:q}"
+
 rule make_pca_scree_plot:
     input:
         eigenval="output/{path}.eigenval",
@@ -474,108 +489,24 @@ rule make_hwe_ternary_plot:
     output: "output/{path}.hardy.ternary.png"
     shell: "Rscript {input.rscript:q} {input.hwe:q} {output:q}"
 
-rule test_common_variants_association:
+rule test_single_variant_association:
     input:
         pbinary_set=multiext("output/variant-analysis/input/samples", ".pgen", ".pvar", ".psam"),
         samples_pca="output/variant-analysis/ALL_PCA.eigenvec"
-    output: expand("output/variant-analysis/cva/results.{pheno}.glm.logistic.hybrid", pheno=all_pheno)
+    output: expand("output/variant-analysis/sva/results.{pheno}.glm.logistic.hybrid", pheno=all_pheno)
     shell: "plink2 --pfile output/variant-analysis/input/samples --glm --maf 0.05 \
-                   --covar {input.samples_pca:q} --covar-col-nums 2-5 \
-                   --out output/variant-analysis/cva/results"
+                   --covar {input.samples_pca:q} --covar-col-nums 2-6 \
+                   --out output/variant-analysis/sva/results"
 
-rule download_ucsc_ref_flat_genes_hg38:
-    output: "vendor/rvtests/refFlat_hg38.txt.gz"
-    shell: "wget -O - 'http://hgdownload.cse.ucsc.edu/goldenPath/hg38/database/refFlat.txt.gz' > {output:q}"
-
-rule test_rare_variants_association_nofilter_maf_any:
-    input:
-        vcf="output/clinvar-annotated-variants/annotated.vcf.gz",
-        tbi="output/clinvar-annotated-variants/annotated.vcf.gz.tbi",
-        ped="output/variant-analysis/input/samples.ped",
-        samples_pca="output/variant-analysis/ALL_PCA.eigenvec",
-        ucsc_gene_file="vendor/rvtests/refFlat_hg38.txt.gz"
-    output: multiext("output/variant-analysis/rva.nofilter.maf_any/{pheno}", \
-                     ".CMC.assoc", ".Skat.assoc", ".SkatO.assoc", ".VariableThresholdPrice.assoc")
-    shell: "rvtest --noweb --inVcf {input.vcf:q} \
-                   --pheno {input.ped:q} --pheno-name {wildcards.pheno} \
-                   --geneFile {input.ucsc_gene_file:q} \
-                   --burden cmc --vt price --kernel skat,skato \
-                   --out output/variant-analysis/rva.nofilter.maf_any/{wildcards.pheno}"
-
-ruleorder:
-    test_rare_variants_association_nofilter_maf_any >
-    test_rare_variants_association_nofilter_maf_threshold >
-    test_rare_variants_association_filtered_maf_any >
-    test_rare_variants_association_filtered_maf_threshold
-
-rule test_rare_variants_association_filtered_maf_any:
-    input:
-        vcf="output/filtered-annotated-variants/{filter}.vcf.gz",
-        tbi="output/filtered-annotated-variants/{filter}.vcf.gz.tbi",
-        ped="output/variant-analysis/input/samples.ped",
-        ucsc_gene_file="vendor/rvtests/refFlat_hg38.txt.gz"
-    output: multiext("output/variant-analysis/rva.{filter}.maf_any/{pheno}", \
-                     ".CMC.assoc", ".Skat.assoc", ".SkatO.assoc", ".VariableThresholdPrice.assoc")
-    shell: "rvtest --noweb --inVcf {input.vcf:q} \
-                   --pheno {input.ped:q} --pheno-name {wildcards.pheno} \
-                   --geneFile {input.ucsc_gene_file:q} \
-                   --burden cmc --vt price --kernel skat,skato \
-                   --out output/variant-analysis/rva.{wildcards.filter}.maf_any/{wildcards.pheno}"
-
-rule test_rare_variants_association_nofilter_maf_threshold:
-    input:
-        vcf="output/clinvar-annotated-variants/annotated.vcf.gz",
-        tbi="output/clinvar-annotated-variants/annotated.vcf.gz.tbi",
-        ped="output/variant-analysis/input/samples.ped",
-        ucsc_gene_file="vendor/rvtests/refFlat_hg38.txt.gz"
-    output: multiext("output/variant-analysis/rva.nofilter.maf_{threshold,[0-9.]+}/{pheno}", \
-                     ".CMC.assoc", ".Skat.assoc", ".SkatO.assoc", ".VariableThresholdPrice.assoc")
-    shell: "rvtest --noweb --inVcf {input.vcf:q} \
-                   --pheno {input.ped:q} --pheno-name {wildcards.pheno} \
-                   --freqUpper {wildcards.threshold} \
-                   --geneFile {input.ucsc_gene_file:q} \
-                   --burden cmc --vt price --kernel skat,skato \
-                   --out output/variant-analysis/rva.nofilter.maf_{wildcards.threshold}/{wildcards.pheno}"
-
-rule test_rare_variants_association_filtered_maf_threshold:
-    input:
-        vcf="output/filtered-annotated-variants/{filter}.vcf.gz",
-        tbi="output/filtered-annotated-variants/{filter}.vcf.gz.tbi",
-        ped="output/variant-analysis/input/samples.ped",
-        ucsc_gene_file="vendor/rvtests/refFlat_hg38.txt.gz"
-    output: multiext("output/variant-analysis/rva.{filter}.maf_{threshold,[0-9.]+}/{pheno}", \
-                     ".CMC.assoc", ".Skat.assoc", ".SkatO.assoc", ".VariableThresholdPrice.assoc")
-    shell: "rvtest --noweb --inVcf {input.vcf:q} \
-                   --pheno {input.ped:q} --pheno-name {wildcards.pheno} \
-                   --freqUpper {wildcards.threshold} \
-                   --geneFile {input.ucsc_gene_file:q} \
-                   --burden cmc --vt price --kernel skat,skato \
-                   --out output/variant-analysis/rva.{wildcards.filter}.maf_{wildcards.threshold}/{wildcards.pheno}"
-
-rule summarize_association_test_results_cva:
-    input: "output/variant-analysis/cva/{path}"
-    output: "output/variant-analysis/cva/{path}.summary"
-    shell: "echo -e 'NAME\tP' > {output:q} && cut -d $'\t' -f 3,16 <(tail -n +2 {input:q} | grep ADD) >> {output:q}"
-
-rule summarize_association_test_results_rva_cmc:
-    input: "output/variant-analysis/rva.{path}.CMC.assoc"
-    output: "output/variant-analysis/rva.{path}.CMC.assoc.summary"
-    shell: "echo -e 'NAME\tP' > {output:q} && cut -d $'\t' -f 1,7 <(tail -n +2 {input:q}) >> {output:q}"
-
-rule summarize_association_test_results_rva_skat:
-    input: "output/variant-analysis/rva.{path}.Skat.assoc"
-    output: "output/variant-analysis/rva.{path}.Skat.assoc.summary"
-    shell: "echo -e 'NAME\tP' > {output:q} && cut -d $'\t' -f 1,13 <(tail -n +2 {input:q}) >> {output:q}"
-
-rule summarize_association_test_results_rva_skato:
-    input: "output/variant-analysis/rva.{path}.SkatO.assoc"
-    output: "output/variant-analysis/rva.{path}.SkatO.assoc.summary"
-    shell: "echo -e 'NAME\tP' > {output:q} && cut -d $'\t' -f 1,8 <(tail -n +2 {input:q}) >> {output:q}"
-
-rule summarize_association_test_results_rva_vt:
-    input: "output/variant-analysis/rva.{path}.VariableThresholdPrice.assoc"
-    output: "output/variant-analysis/rva.{path}.VariableThresholdPrice.assoc.summary"
-    shell: "echo -e 'NAME\tP' > {output:q} && cut -d $'\t' -f 1,14 <(tail -n +2 {input:q}) >> {output:q}"
+rule test_rare_variant_association_pheno:
+   input:
+       rscript="src/perform-skat-analysis.r",
+       psam="output/variant-analysis/input/samples.psam",
+       samples_pca="output/variant-analysis/ALL_PCA.eigenvec",
+       vcf="output/filtered-annotated-variants/{filter}.vcf.gz"
+   output: "output/variant-analysis/rva.{filter}.maf_{maf}/{pheno}.{test}.assoc"
+   shell: "Rscript {input.rscript:q} {wildcards.pheno} {wildcards.test} {wildcards.maf} \
+                   {input.vcf:q} {input.psam:q} {input.samples_pca:q} >{output:q}"
 
 rule make_volcano_plot_from_association_test_results:
     input:
@@ -594,13 +525,13 @@ rule make_manhattan_plot_from_association_test_results:
 rule make_qq_plot_from_association_test_results:
     input:
         rscript="src/make-qq-plot.r",
-        res_summary="output/variant-analysis/{path}.summary"
+        results="output/variant-analysis/{path}"
     output: "output/variant-analysis/{path}.qq.png"
-    shell: "Rscript {input.rscript:q} {input.res_summary:q} {output:q}"
+    shell: "Rscript {input.rscript:q} {input.results:q} {output:q}"
 
 rule make_bar_plot_from_association_test_results:
     input:
         rscript="src/make-bar-plot.r",
-        res_summary="output/variant-analysis/{path}.summary"
+        results="output/variant-analysis/{path}"
     output: "output/variant-analysis/{path}.bar.png"
-    shell: "Rscript {input.rscript:q} {input.res_summary:q} {output:q}"
+    shell: "Rscript {input.rscript:q} {input.results:q} {output:q}"

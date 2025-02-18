@@ -10,6 +10,14 @@ as_genetic_status <- function(x) {
   factor(x, levels = c("Normal", "Alterado"))
 }
 
+as_kings_stage <- function(x) {
+  ordered(x, levels = 0:5)
+}
+
+as_mitos <- function(x) {
+  ordered(x, levels = 0:5)
+}
+
 as_progression_category <- function(x) {
   ordered(x, levels = c("SP", "NP", "FP"))
 }
@@ -62,7 +70,7 @@ ufela_clinico <- dbReadTable(ufela_db, "datos_clinicos") |>
     )
   )
 
-ufela_biometria <- dbReadTable(ufela_db, "datos_antro") |>
+ufela_nutri <- dbReadTable(ufela_db, "datos_antro") |>
   rename_with(normalize_names) |>
   rename(
     fecha_visita = fecha_visita_datos_antro,
@@ -76,11 +84,15 @@ ufela_biometria <- dbReadTable(ufela_db, "datos_antro") |>
   mutate(
     across(everything(), \(x) na_if(x, "NS/NC")),
     across(starts_with("fecha_"), lubridate::dmy),
+    across(c(indicacion_peg, portador_peg), ~ case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
     across(c(peso, peso_premorbido, altura_cm), as.numeric),
     imc = round(peso / (altura_cm / 100)^2, digits = 1),
     perdida_ponderal = (peso - peso_premorbido) / peso_premorbido,
   ) |>
-  select(pid, fecha_visita, peso, peso_premorbido, altura_cm, imc, perdida_ponderal)
+  select(
+    pid, fecha_visita, peso, peso_premorbido, altura_cm, imc,
+    perdida_ponderal, indicacion_peg, portador_peg
+  )
 
 ufela_respi <- dbReadTable(ufela_db, "fun_res") |>
   rename_with(normalize_names) |>
@@ -120,9 +132,68 @@ ufela_alsfrs <- dbReadTable(ufela_db, "esc_val_ela") |>
     meses_desde_inicio = (fecha_visita - fecha_inicio_clinica) / dmonths(1),
     meses_desde_diagnostico = (fecha_visita - fecha_diagnostico_ela) / dmonths(1),
     delta_fs = round((48 - total) / meses_desde_inicio, digits = 1),
+    mitos = as_mitos({
+      movement <- (caminar <= 1) | (vestido <= 1)
+      swallowing <- deglucion <= 1
+      communication <- (lenguaje <= 1) & (escritura <= 1)
+      breathing <- (disnea <= 1) | (insuficiencia_respiratoria <= 2)
+      movement + swallowing + communication + breathing
+    })
   )
 
+ufela_kings <- ufela_alsfrs |>
+  left_join(
+    ufela_nutri |>
+      filter(indicacion_peg) |>
+      slice_min(fecha_visita, by = pid, n = 1) |>
+      select(pid, fecha_indicacion_peg = "fecha_visita"),
+    by = "pid"
+  ) |>
+  mutate(
+    kings_c = as_kings_stage(case_when(
+      !is.na(fecha_indicacion_peg) & fecha_visita >= fecha_indicacion_peg ~ 4,
+      cortar_con_peg > 0 & cortar_sin_peg > 0 ~ NA,
+      cortar_con_peg == 0 & cortar_sin_peg == 0 ~ NA,
+      cortar_con_peg > 0 & cortar_sin_peg == 0 ~ 4,
+      (disnea == 0) | (insuficiencia_respiratoria < 4) ~ 4,
+      TRUE ~ {
+        bulbar_region <- total_bulbar < 12
+        upper_region <- (escritura < 4) | (cortar_sin_peg < 4)
+        lower_region <- caminar < 4
+        bulbar_region + upper_region + lower_region
+      }
+    )),
+    kings = coalesce(as_kings_stage(as.integer(kings)), kings_c),
+  ) |>
+  select(pid, fecha_kings = "fecha_visita", kings)
+
 dbDisconnect(ufela_db)
+
+ufela_mitos_dates <- ufela_pacientes |>
+  select(pid) |>
+  cross_join(tibble(mitos = as_mitos(1:4))) |>
+  bind_rows(ufela_alsfrs |> select(pid, fecha_mitos = "fecha_visita", mitos)) |>
+  drop_na(mitos) |>
+  filter(mitos > 0) |>
+  slice_min(fecha_mitos, by = c(pid, mitos), n = 1, with_ties = FALSE) |>
+  group_by(pid) |>
+  arrange(mitos, .by_group = TRUE) |>
+  fill(fecha_mitos, .direction = "up") |>
+  ungroup() |>
+  pivot_wider(names_from = mitos, values_from = fecha_mitos, names_prefix = "fecha_mitos_")
+
+ufela_kings_dates <- ufela_pacientes |>
+  select(pid) |>
+  cross_join(tibble(kings = as_kings_stage(1:4))) |>
+  bind_rows(ufela_kings) |>
+  drop_na(kings) |>
+  filter(kings > 0) |>
+  slice_min(fecha_kings, by = c(pid, kings), n = 1, with_ties = FALSE) |>
+  group_by(pid) |>
+  arrange(kings, .by_group = TRUE) |>
+  fill(fecha_kings, .direction = "up") |>
+  ungroup() |>
+  pivot_wider(names_from = kings, values_from = fecha_kings, names_prefix = "fecha_kings_")
 
 ufela_deltafs_basal <- ufela_alsfrs |>
   drop_na(delta_fs) |>
@@ -134,7 +205,7 @@ ufela_deltafs_basal <- ufela_alsfrs |>
     delta_fs > 1 ~ "FP",
   )))
 
-ufela_biometria_basal <- ufela_biometria |>
+ufela_biometria_basal <- ufela_nutri |>
   drop_na(peso) |>
   slice_min(fecha_visita, by = pid, n = 1, with_ties = FALSE, na_rm = TRUE) |>
   select(pid, fecha_imc = "fecha_visita", altura_cm, peso_basal = "peso", peso_premorbido, imc_basal = "imc", perdida_ponderal)
@@ -152,4 +223,6 @@ ufela_datos <- ufela_pacientes |>
   ) |>
   left_join(ufela_fvc_basal, by = "pid") |>
   left_join(ufela_deltafs_basal, by = "pid") |>
-  left_join(ufela_biometria_basal, by = "pid")
+  left_join(ufela_biometria_basal, by = "pid") |>
+  left_join(ufela_kings_dates, by = "pid") |>
+  left_join(ufela_mitos_dates, by = "pid")

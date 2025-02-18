@@ -11,6 +11,7 @@ library(DBI)
 library(RSQLite)
 
 source("src/utils.r")
+source("src/edmus.r")
 
 args <- commandArgs(trailingOnly = TRUE)
 input_path <- coalesce(args[1], "output/renamed-variant-samples/samples.normalized.txt")
@@ -37,12 +38,45 @@ ms_samples_isa <- read_excel("data/ufem/Muestras-20240201.xlsx") |>
     grupo = if_else(is.na(nhc), "CONTROL", "EM")
   )
 
-ms_info_fclinica <- read_excel("data/ufem/FClinica.xlsx") |>
+ms_fclinica_data <- read_excel("data/ufem/FClinica.xlsx") |>
   rename_with(normalize_names) |>
+  rename(id_edmus = fc_n_edmus) |>
   mutate(
     across(c(fc_nhc, fc_sap), as.integer),
     sexo = fc_sexo |> case_match(0 ~ "M", 1 ~ "F")
   )
+
+ms_info_fclinica <- bind_rows(
+  ms_fclinica_data |> mutate(nhc = fc_sap),
+  ms_fclinica_data |> mutate(nhc = fc_nhc),
+) |>
+  select(nhc, fc_sap, fc_nhc, id_edmus, sexo) |>
+  distinct()
+
+ms_info_edmus <- edmus_personal |>
+  select(-ms_onset) |>
+  left_join(edmus_diagnosis, by = "patient_id") |>
+  mutate(
+    edad_inicio = floor((ms_onset - date_of_birth) / dyears(1)),
+    fenotipo = disease_course |> case_match(
+      "RR" ~ "RR",
+      "SP-R" ~ "SP", "SP-NR" ~ "SP",
+      "PP-R" ~ "PP", "PP-NR" ~ "PP"
+    ),
+    tiempo_hasta_iedss_3 = if_else(
+      !irreversible_dss_3_unknown_date,
+      round(
+        (irreversible_dss_3 - ms_onset) / dmonths(1)
+      ),
+      NA_integer_
+    ),
+    tiempo_hasta_iedss_6 = if_else(
+      !irreversible_dss_6_unknown_date,
+      round((irreversible_dss_6 - ms_onset) / dmonths(1)),
+      NA_integer_
+    )
+  ) |>
+  left_join(edmus_arr, by = "patient_id")
 
 ms_samples_info <- ms_sample_ids |>
   left_join(
@@ -56,17 +90,23 @@ ms_samples_info <- ms_sample_ids |>
   mutate(
     nhc = coalesce(nhc_bb, nhc_isa),
     grupo = coalesce(grupo_bb, grupo_isa),
+    .keep = "unused"
   ) |>
-  left_join(ms_info_fclinica |> select(nhc = "fc_nhc", sexo), by = "nhc", na_matches = "never") |>
-  left_join(ms_info_fclinica |> select(nhc = "fc_sap", sexo), by = "nhc", na_matches = "never") |>
-  mutate(sexo = coalesce(sexo.x, sexo.y), .keep = "unused")
+  left_join(ms_info_fclinica, by = "nhc", na_matches = "never") |>
+  left_join(ms_info_edmus, by = c(id_edmus = "local_identifier"), na_matches = "never")
 
 ms_samples_info |>
-  arrange(sample_id) |>
+  arrange(sample_id, grupo) |>
   transmute(
     SAMPLE = sample_id,
     NHC = nhc,
     SEX = sexo,
-    PHENO = grupo |> case_match("CONTROL" ~ "CONTROL", "EM" ~ "MS")
+    PHENO = grupo |> case_match("CONTROL" ~ "CONTROL", "EM" ~ "MS"),
+    MS_PHENO = fenotipo,
+    MS_ONSET = edad_inicio,
+    MS_ARR_Y1 = arr_y1,
+    MS_ARR_Y3 = round(arr_y3, 1),
+    MS_IEDSS3 = tiempo_hasta_iedss_3,
+    MS_IEDSS6 = tiempo_hasta_iedss_6,
   ) |>
   write_tsv(stdout())
