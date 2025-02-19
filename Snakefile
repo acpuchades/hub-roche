@@ -10,12 +10,13 @@ all_pheno = ["ALS", "MS", "ALS_MS"]
 
 sva_suffixes = [".qq.png", ".volcano.png", ".manhattan.png", ".bar.png"]
 rva_filters = ["impact_HIGH", "cadd_20", "sift4g_D", "polyphen2_D"]
-rva_tests = ["SKAT", "SKATO"]
+rva_tests = ["Burden", "SKAT", "SKATO"]
 rva_suffixes = [".qq.png", ".bar.png"]
 
 rule all:
     input:
         expand("output/phenotype-info/{pheno}.samples", pheno=["CONTROL", "ALS", "MS"]),
+        "output/variant-analysis/ALL_PCA.eigenval.pca.png",
         "output/variant-analysis/ALL_PCA.eigenval.scree.png",
         "output/variant-analysis/CONTROL_HWE.hardy.ternary.png",
         expand(
@@ -370,7 +371,7 @@ rule extract_sample_information_for_als_subjects:
     output: "output/phenotype-info/ALS.tsv"
     shell: "Rscript {input.rscript:q} {input.sample_names:q} > {output:q}"
 
-rule generate_overall_sample_information:
+rule combine_sample_information_from_all:
     input:
         rscript="src/join-samples-info.r",
         als_info="output/phenotype-info/ALS.tsv",
@@ -454,17 +455,17 @@ rule make_sample_covariates_file:
         samples_info="output/phenotype-info/ALL.tsv",
         samples_pca="output/variant-analysis/ALL_PCA.eigenvec"
     output: "output/variant-analysis/input/samples.cov"
-    shell: "echo -e 'FID\tIID\tFATID\tMATID\tSEX\tPC1\tPC2\tPC3\tPC4\tPC5\tPC6\tPC7\tPC8\tPC9\tPC10' > {output:q} && \
-            join -1 1 -2 1 <(tail -n +2 {input.samples_info:q} | sort -k1,1) \
+    shell: "echo -e '#IID\tSEX\tPC1\tPC2\tPC3\tPC4\tPC5\tPC6\tPC7\tPC8\tPC9\tPC10' > {output:q} && \
+            join -1 1 -2 1 <(tail -n +2 {input.samples_info:q} | cut -f1,3 | sort -k1,1) \
                            <(tail -n +2  {input.samples_pca:q} | sort -k1,1) \
                 | gawk ' \
                     BEGIN {{ OFS=\"\\t\"; }} \
                     {{ \
-                        print $1, $1, 0, 0, \
-                            $3 == \"M\" ? 1 \
-                                : $3 == \"F\" ? 2 \
+                        print $1, \
+                            $2 == \"M\" ? 1 \
+                                : $2 == \"F\" ? 2 \
                                 : 0, \
-                            $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 \
+                            $3, $4, $5, $6, $7, $8, $9, $10, $11, $12 \
                     }} \
                 ' >> {output:q}"
 
@@ -495,7 +496,7 @@ rule test_single_variant_association:
         samples_pca="output/variant-analysis/ALL_PCA.eigenvec"
     output: expand("output/variant-analysis/sva/results.{pheno}.glm.logistic.hybrid", pheno=all_pheno)
     shell: "plink2 --pfile output/variant-analysis/input/samples --glm --maf 0.05 \
-                   --covar {input.samples_pca:q} --covar-col-nums 2-6 \
+                   --covar {input.samples_pca:q} --covar-name PC1,PC2,PC3,PC4,PC5,PC6,PC7,PC8 \
                    --out output/variant-analysis/sva/results"
 
 rule test_rare_variant_association_pheno:
@@ -521,6 +522,13 @@ rule make_manhattan_plot_from_association_test_results:
         results="output/variant-analysis/{path}"
     output: "output/variant-analysis/{path}.manhattan.png"
     shell: "Rscript {input.rscript:q} {input.results:q} {output:q}"
+
+rule make_pca_plot_from_pca_data:
+    input:
+        rscript="src/make-pca-plot.r",
+        pca="output/{path}.eigenvec"
+    output: "output/{path}.eigenvec.pca.png"
+    shell: "Rscript {input.rscript:q} {input.pca:q} {output:q}"
 
 rule make_qq_plot_from_association_test_results:
     input:
