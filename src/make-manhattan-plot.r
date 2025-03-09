@@ -25,19 +25,22 @@ datos_acc <- datos |>
 
 datos <- datos |>
   left_join(datos_acc, by = "chrom_num") |>
-  mutate(pos_acc = pos + pos_add)
+  mutate(
+    pos_acc = pos + pos_add,
+    q_fdr = p.adjust(p, method = "fdr")
+  )
 
 axis_set <- datos |>
   group_by(chrom) |>
   summarize(center = mean(pos_acc))
 
-datos |>
-  ggplot(aes(pos_acc, -log10(p), color = as.factor(chrom_num %% 2))) +
+fdr_threshold <- config::get("fdr_threshold")
+results_sig <- datos |> filter(q_fdr <= fdr_threshold)
+
+ggplot(datos, aes(pos_acc, -log10(p), color = as.factor(chrom_num %% 2))) +
   geom_point(size = 1) +
-  scale_x_continuous(
-    label = axis_set$chrom,
-    breaks = axis_set$center
-  ) +
+  geom_hline(yintercept = -log10(max(results_sig$p)), linetype = "dashed") +
+  scale_x_continuous(label = axis_set$chrom, breaks = axis_set$center) +
   scale_color_manual(values = c("#276FBF", "#183059")) +
   labs(x = "Chromosome", y = TeX("$-log_{10}(P)$"), color = NULL) +
   theme(

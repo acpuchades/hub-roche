@@ -31,7 +31,7 @@ ggplot(resultados, aes(expected, observed, color = q_fdr <= fdr_threshold)) +
   geom_point() +
   geom_abline(intercept = 0, slope = 1, color = "black") +
   geom_text(
-    aes(label = if_else(q_fdr <= fdr_threshold, name, "")),
+    aes(label = if_else(q_fdr <= fdr_threshold, as.character(name), "")),
     nudge_y = -0.1
   ) +
   scale_color_manual(values = c("grey", "red")) +

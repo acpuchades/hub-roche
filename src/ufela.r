@@ -141,6 +141,8 @@ ufela_alsfrs <- dbReadTable(ufela_db, "esc_val_ela") |>
     })
   )
 
+dbDisconnect(ufela_db)
+
 ufela_kings <- ufela_alsfrs |>
   left_join(
     ufela_nutri |>
@@ -167,8 +169,6 @@ ufela_kings <- ufela_alsfrs |>
   ) |>
   select(pid, fecha_kings = "fecha_visita", kings)
 
-dbDisconnect(ufela_db)
-
 ufela_mitos_dates <- ufela_pacientes |>
   select(pid) |>
   cross_join(tibble(mitos = as_mitos(1:4))) |>
@@ -194,6 +194,31 @@ ufela_kings_dates <- ufela_pacientes |>
   fill(fecha_kings, .direction = "up") |>
   ungroup() |>
   pivot_wider(names_from = kings, values_from = fecha_kings, names_prefix = "fecha_kings_")
+
+ufela_kings_durations <- ufela_kings_dates |>
+  left_join(
+    ufela_clinico |> select(pid, fecha_inicio_clinica),
+    by = "pid"
+  ) |>
+  pivot_longer(
+    starts_with("fecha_kings_"),
+    names_prefix = "fecha_kings_",
+    names_to = "kings",
+    values_to = "fecha_kings"
+  ) |>
+  group_by(pid) |>
+  arrange(fecha_kings, .by_group = TRUE) |>
+  mutate(
+    kings_duration = case_when(
+      is.na(lead(fecha_kings)) ~ NA,
+      fecha_kings == lead(fecha_kings) ~ NA,
+      kings == 1 ~ lead(fecha_kings) - fecha_inicio_clinica,
+      TRUE ~ lead(fecha_kings) - fecha_kings
+    )
+  ) |>
+  ungroup() |>
+  select(-fecha_inicio_clinica, -fecha_kings) |>
+  pivot_wider(names_from = kings, values_from = kings_duration, names_prefix = "duracion_kings_")
 
 ufela_deltafs_basal <- ufela_alsfrs |>
   drop_na(delta_fs) |>

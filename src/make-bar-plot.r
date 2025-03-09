@@ -26,7 +26,7 @@ resultados <- read_tsv(input_path) |>
 
 resultados |>
   slice_min(p_value, n = 20, with_ties = FALSE) |>
-  mutate(name = fct_reorder(name, log_p)) |>
+  mutate(name = fct_reorder(as.character(name), log_p)) |>
   ggplot(aes(x = log_p, y = name, fill = q_fdr <= config::get("fdr_threshold"))) +
   geom_col() +
   geom_text(

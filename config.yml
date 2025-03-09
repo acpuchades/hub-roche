@@ -1,2 +1,2 @@
 default:
-  fdr_threshold: 0.1
+  fdr_threshold: 0.05

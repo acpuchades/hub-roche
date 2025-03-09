@@ -46,6 +46,9 @@ ms_fclinica_data <- read_excel("data/ufem/FClinica.xlsx") |>
     sexo = fc_sexo |> case_match(0 ~ "M", 1 ~ "F")
   )
 
+ms_scores <- read_csv("data/ufem/datos-msss.csv") |>
+  select(patient_id, msss = oGMSSS, armss = gARMSS)
+
 ms_info_fclinica <- bind_rows(
   ms_fclinica_data |> mutate(nhc = fc_sap),
   ms_fclinica_data |> mutate(nhc = fc_nhc),
@@ -95,8 +98,25 @@ ms_samples_info <- ms_sample_ids |>
   left_join(ms_info_fclinica, by = "nhc", na_matches = "never") |>
   left_join(ms_info_edmus, by = c(id_edmus = "local_identifier"), na_matches = "never")
 
+# edmus_clinical |>
+#  select(patient_id, date, edss = "edss_entered") |>
+#  left_join(edmus_personal |> select(patient_id, date_of_birth, ms_onset), by = "patient_id") |>
+#  filter(date |> between(ms_onset + dyears(2.5), ms_onset + dyears(3.5))) |>
+#  slice_min(date, by = patient_id, n = 1, with_ties = FALSE) |>
+#  semi_join(ms_samples_info, by = "patient_id") |>
+#  transmute(
+#    patient_id, dd = floor((date - ms_onset) / dyears(1)),
+#    ageatedss = floor((date - date_of_birth) / dyears(1)),
+#    edss
+#  ) |>
+#  write_csv("data/ufem/input-msss.csv")
+
+ms_scores <- read_csv("data/ufem/datos-msss.csv") |>
+  select(patient_id, msss = oGMSSS, armss = gARMSS)
+
 ms_samples_info |>
   arrange(sample_id, grupo) |>
+  left_join(ms_scores, by = "patient_id", na_matches = "never") |>
   transmute(
     SAMPLE = sample_id,
     NHC = nhc,
@@ -104,6 +124,8 @@ ms_samples_info |>
     PHENO = grupo |> case_match("CONTROL" ~ "CONTROL", "EM" ~ "MS"),
     MS_PHENO = fenotipo,
     MS_ONSET = edad_inicio,
+    MS_MSSS = msss,
+    MS_ARMSS = armss,
     MS_ARR_Y1 = arr_y1,
     MS_ARR_Y3 = round(arr_y3, 1),
     MS_IEDSS3 = tiempo_hasta_iedss_3,
