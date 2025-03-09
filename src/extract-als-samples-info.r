@@ -10,6 +10,7 @@ library(writexl)
 
 source("src/utils.r")
 source("src/ufela.r")
+source("src/ufela-d50.r")
 
 discard_samples_cdr <- tibble(codigo_donante = c("ELA959"))
 discard_samples_ccn <- tibble(codigo_caso_noraybanks = c("ELA1912", "ELA1923", "ELA1924"))
@@ -39,10 +40,9 @@ bb_samples <- read_excel("data/biobanco/Muestras ELA.xlsx", skip = 1) |>
   clean_names() |>
   rename(codigo_caso_noraybanks = codigo_caso_noray_banks) |>
   transmute(
-    across(nhc, as.integer),
+    nhc = suppressWarnings(as.integer(nhc)),
     across(c(codigo_caso_noraybanks, codigo_donacion_recepcion), normalize_biobank_id),
     codigo_donante = biobank_donor_id(codigo_donacion_recepcion),
-    fecha_muestra = dmy(coalesce(fecha_muestra, fecha_donacion_recepcion))
   ) |>
   left_join(
     bb_groups |>
@@ -147,6 +147,7 @@ samples_info <- sample_ids |>
   ) |>
   left_join(
     ufela_datos |>
+      left_join(ufela_d50, by = "pid") |>
       transmute(
         nhc,
         sexo = sexo |> case_match(
@@ -166,9 +167,15 @@ samples_info <- sample_ids |>
           "Atrofia Muscular Progresiva (AMP)" ~ "PMA",
           "Esclerosis Lateral Primaria (ELP)" ~ "PLS",
         ),
+        alsfrs_d50 = if_else(D50 |> between(0, 10 * 12), round(D50, 1), NA_real_),
         delta_fs = if_else(fecha_deltafs - fecha_diagnostico_ela <= dmonths(12), delta_fs, NA_real_),
         fvc_basal = if_else(fecha_fvc - fecha_diagnostico_ela <= dmonths(12), fvc_basal, NA),
-        categoria_progresion = if_else(fecha_deltafs - fecha_diagnostico_ela <= dmonths(12), categoria_progresion, NA),
+        categoria_progresion_dfs = if_else(fecha_deltafs - fecha_diagnostico_ela <= dmonths(12), categoria_progresion, NA),
+        categoria_progresion_d50 = case_when(
+          alsfrs_d50 < 20 ~ "FP",
+          alsfrs_d50 |> between(20, 50) ~ "NP",
+          alsfrs_d50 > 50 ~ "SP",
+        ),
         supervivencia_meses = round((fecha_exitus - fecha_inicio_clinica) / dmonths(1), digits = 1),
         across(
           c(starts_with("fecha_kings_"), starts_with("fecha_mitos_")),
@@ -196,7 +203,9 @@ samples_info |>
     ALS_PHENO = fenotipo,
     ALS_DD = retraso_diagnostico_meses,
     ALS_DFS = delta_fs,
-    ALS_PC = categoria_progresion,
+    ALS_D50 = alsfrs_d50,
+    ALS_DFS_PC = categoria_progresion_dfs,
+    ALS_D50_PC = categoria_progresion_d50,
     ALS_FVC = fvc_basal,
     ALS_KSS1 = tiempo_hasta_kings_1,
     ALS_KSS2 = tiempo_hasta_kings_2,

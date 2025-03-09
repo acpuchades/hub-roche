@@ -27,9 +27,11 @@ samples_info <- read_tsv(samples_info_path) |>
       "ALS-S" ~ 1, "ALS-B" ~ 1, "ALS-R" ~ 1,
       "PBP" ~ 2, "FAS" ~ 2, "FLS" ~ 2,
     ),
-    ALS_DFS_SP = ALS_PC |> case_match("SP" ~ 2, "NP" ~ 1, "FP" ~ 1),
-    ALS_DFS_FP = ALS_PC |> case_match("SP" ~ 1, "NP" ~ 1, "FP" ~ 2),
-    .after = ALS_PC, .keep = "unused"
+    ALS_DFS_SP = ALS_DFS_PC |> case_match("SP" ~ 2, "NP" ~ 1, "FP" ~ 1),
+    ALS_DFS_FP = ALS_DFS_PC |> case_match("SP" ~ 1, "NP" ~ 1, "FP" ~ 2),
+    ALS_D50_SP = ALS_D50_PC |> case_match("SP" ~ 2, "NP" ~ 1, "FP" ~ 1),
+    ALS_D50_FP = ALS_D50_PC |> case_match("SP" ~ 1, "NP" ~ 1, "FP" ~ 2),
+    .after = ALS_D50_PC, .keep = "unused"
   ) |>
   mutate(
     MS_SP = MS_PHENO |> case_match("RR" ~ 1, "SP" ~ 2, "PP" ~ 1),

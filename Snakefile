@@ -8,20 +8,20 @@ all_chrN = nuclear_chrN + ['M']
 
 all_pheno_logistic = [
     "ALS", "MS", "ALS_MS",
-    "ALS_RESTRICTED", "ALS_UMN", "ALS_LMN",
     "ALS_DFS_SP", "ALS_DFS_FP",
+    "ALS_D50_SP", "ALS_D50_FP",
     "MS_SP", "MS_PP",
 ]
 
 all_pheno_linear = [
-    "ALS_ONSET", "ALS_DD", "ALS_DFS", "ALS_FVC",
+    "ALS_ONSET", "ALS_DD", "ALS_DFS", "ALS_D50", "ALS_FVC",
     "ALS_KSS3", "ALS_KSS4", "ALS_MITOS1", "ALS_MITOS2", "ALS_MITOS3", "ALS_MITOS4", "ALS_SURVIVAL",
     "MS_ONSET", "MS_MSSS", "MS_ARMSS", "MS_IEDSS3", "MS_IEDSS6", "MS_ARR_Y1", "MS_ARR_Y3"
 ]
 
 all_pheno = all_pheno_logistic + all_pheno_linear
 
-sva_pheno_exclude = ["ALS_LMN", "ALS_MITOS2", "ALS_MITOS3", "ALS_MITOS4"]
+sva_pheno_exclude = ["ALS_MITOS4"]
 sva_pheno_linear = [x for x in all_pheno_linear if x not in sva_pheno_exclude]
 sva_pheno_logistic = [x for x in all_pheno_logistic if x not in sva_pheno_exclude]
 
